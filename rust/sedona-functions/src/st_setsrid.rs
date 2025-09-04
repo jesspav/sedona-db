@@ -88,8 +88,12 @@ impl SedonaScalarKernel for STSetSRID {
             if let ScalarValue::Utf8(maybe_crs) = scalar_crs.cast_to(&DataType::Utf8)? {
                 let new_crs = match maybe_crs {
                     Some(crs) => {
-                        validate_crs(&crs, self.engine.as_ref())?;
-                        deserialize_crs(&serde_json::Value::String(crs))?
+                        if crs == "0" {
+                            None
+                        } else {
+                            validate_crs(&crs, self.engine.as_ref())?;
+                            deserialize_crs(&serde_json::Value::String(crs))?
+                        }
                     }
                     None => None,
                 };
@@ -173,6 +177,7 @@ mod test {
         let good_crs_scalar = ScalarValue::Utf8(Some("EPSG:4326".to_string()));
         let null_crs_scalar = ScalarValue::Utf8(None);
         let epsg_code_scalar = ScalarValue::Int32(Some(4326));
+        let unset_scalar = ScalarValue::Int32(Some(0));
         let questionable_crs_scalar = ScalarValue::Utf8(Some("gazornenplat".to_string()));
 
         // Call with a string scalar destination
@@ -192,6 +197,12 @@ mod test {
             call_udf(&udf, geom_arg.clone(), epsg_code_scalar.clone()).unwrap();
         assert_eq!(return_type, wkb_lnglat);
         assert_value_equal(&result, &geom_lnglat);
+
+        // Call with an integer code of 0 (should unset the output crs)
+        let (return_type, result) =
+            call_udf(&udf, geom_lnglat.clone(), epsg_unset_scalar.clone()).unwrap();
+        assert_eq!(return_type, WKB_GEOMETRY);
+        assert_value_equal(&result, &geom_arg);
 
         // Ensure that an engine can reject a CRS if the UDF was constructed with one
         let udf_with_validation: ScalarUDF =
