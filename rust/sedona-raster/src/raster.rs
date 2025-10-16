@@ -114,7 +114,7 @@ pub enum StorageType {
     OutDbRef = 1,
 }
 
-pub mod column {
+mod column {
     pub const METADATA: &str = "metadata";
     pub const BANDS: &str = "bands";
     pub const BAND: &str = "band";
@@ -141,6 +141,43 @@ pub mod column {
     pub const NODATAVALUE: &str = "nodata_value";
     pub const STORAGE_TYPE: &str = "storage_type";
     pub const DATATYPE: &str = "data_type";
+}
+
+/// Hard-coded column indices for maximum performance
+/// These must match the exact order defined in RasterSchema::metadata_type()
+mod metadata_indices {
+    pub const WIDTH: usize = 0;
+    pub const HEIGHT: usize = 1;
+    pub const UPPERLEFT_X: usize = 2;
+    pub const UPPERLEFT_Y: usize = 3;
+    pub const SCALE_X: usize = 4;
+    pub const SCALE_Y: usize = 5;
+    pub const SKEW_X: usize = 6;
+    pub const SKEW_Y: usize = 7;
+    pub const BOUNDING_BOX: usize = 8;
+}
+
+mod bounding_box_indices {
+    pub const MIN_X: usize = 0;
+    pub const MIN_Y: usize = 1;
+    pub const MAX_X: usize = 2;
+    pub const MAX_Y: usize = 3;
+}
+
+mod band_metadata_indices {
+    pub const NODATAVALUE: usize = 0;
+    pub const STORAGE_TYPE: usize = 1;
+    pub const DATATYPE: usize = 2;
+}
+
+mod band_indices {
+    pub const METADATA: usize = 0;
+    pub const DATA: usize = 1;
+}
+
+mod raster_indices {
+    pub const METADATA: usize = 0;
+    pub const BANDS: usize = 1;
 }
 
 /// Builder for constructing raster arrays with zero-copy band data writing
@@ -546,8 +583,7 @@ struct MetadataRefImpl<'a> {
 impl<'a> MetadataRef for MetadataRefImpl<'a> {
     fn width(&self) -> u64 {
         self.metadata_struct
-            .column_by_name(column::WIDTH)
-            .unwrap()
+            .column(metadata_indices::WIDTH)
             .as_any()
             .downcast_ref::<UInt64Array>()
             .unwrap()
@@ -556,8 +592,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn height(&self) -> u64 {
         self.metadata_struct
-            .column_by_name(column::HEIGHT)
-            .unwrap()
+            .column(metadata_indices::HEIGHT)
             .as_any()
             .downcast_ref::<UInt64Array>()
             .unwrap()
@@ -566,8 +601,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn upper_left_x(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::UPPERLEFT_X)
-            .unwrap()
+            .column(metadata_indices::UPPERLEFT_X)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -576,8 +610,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn upper_left_y(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::UPPERLEFT_Y)
-            .unwrap()
+            .column(metadata_indices::UPPERLEFT_Y)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -586,8 +619,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn scale_x(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::SCALE_X)
-            .unwrap()
+            .column(metadata_indices::SCALE_X)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -596,8 +628,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn scale_y(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::SCALE_Y)
-            .unwrap()
+            .column(metadata_indices::SCALE_Y)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -606,8 +637,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn skew_x(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::SKEW_X)
-            .unwrap()
+            .column(metadata_indices::SKEW_X)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -616,8 +646,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn skew_y(&self) -> f64 {
         self.metadata_struct
-            .column_by_name(column::SKEW_Y)
-            .unwrap()
+            .column(metadata_indices::SKEW_Y)
             .as_any()
             .downcast_ref::<arrow::array::Float64Array>()
             .unwrap()
@@ -626,26 +655,30 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
 
     fn bounding_box(&self) -> Option<BoundingBox> {
         // Try to get bounding box if present in schema
-        if let Some(bbox_column) = self.metadata_struct.column_by_name(column::BOUNDING_BOX) {
-            let bbox_struct = bbox_column.as_any().downcast_ref::<StructArray>()?;
+        if let Some(bbox_struct) = self
+            .metadata_struct
+            .column(metadata_indices::BOUNDING_BOX)
+            .as_any()
+            .downcast_ref::<StructArray>()
+        {
             Some(BoundingBox {
                 min_x: bbox_struct
-                    .column_by_name(column::MIN_X)?
+                    .column(bounding_box_indices::MIN_X)
                     .as_any()
                     .downcast_ref::<arrow::array::Float64Array>()?
                     .value(self.index),
                 min_y: bbox_struct
-                    .column_by_name(column::MIN_Y)?
+                    .column(bounding_box_indices::MIN_Y)
                     .as_any()
                     .downcast_ref::<arrow::array::Float64Array>()?
                     .value(self.index),
                 max_x: bbox_struct
-                    .column_by_name(column::MAX_X)?
+                    .column(bounding_box_indices::MAX_X)
                     .as_any()
                     .downcast_ref::<arrow::array::Float64Array>()?
                     .value(self.index),
                 max_y: bbox_struct
-                    .column_by_name(column::MAX_Y)?
+                    .column(bounding_box_indices::MAX_Y)
                     .as_any()
                     .downcast_ref::<arrow::array::Float64Array>()?
                     .value(self.index),
@@ -666,8 +699,7 @@ impl<'a> BandMetadataRef for BandMetadataRefImpl<'a> {
     fn nodata_value(&self) -> Option<&[u8]> {
         let nodata_array = self
             .metadata_struct
-            .column_by_name(column::NODATAVALUE)
-            .unwrap()
+            .column(band_metadata_indices::NODATAVALUE)
             .as_any()
             .downcast_ref::<BinaryArray>()
             .expect("Expected BinaryArray for nodata");
@@ -682,8 +714,7 @@ impl<'a> BandMetadataRef for BandMetadataRefImpl<'a> {
     fn storage_type(&self) -> StorageType {
         let storage_type_array = self
             .metadata_struct
-            .column_by_name(column::STORAGE_TYPE)
-            .unwrap()
+            .column(band_metadata_indices::STORAGE_TYPE)
             .as_any()
             .downcast_ref::<UInt32Array>()
             .expect("Expected UInt32Array for storage_type");
@@ -701,8 +732,7 @@ impl<'a> BandMetadataRef for BandMetadataRefImpl<'a> {
     fn data_type(&self) -> BandDataType {
         let datatype_array = self
             .metadata_struct
-            .column_by_name(column::DATATYPE)
-            .unwrap()
+            .column(band_metadata_indices::DATATYPE)
             .as_any()
             .downcast_ref::<UInt32Array>()
             .expect("Expected UInt32Array for datatype");
@@ -768,7 +798,7 @@ impl<'a> BandsRef for BandsRefImpl<'a> {
 
         // Get the metadata substructure from the band struct
         let band_metadata_struct = bands_struct
-            .column_by_name(column::METADATA)?
+            .column(band_indices::METADATA)
             .as_any()
             .downcast_ref::<StructArray>()?;
 
@@ -779,7 +809,7 @@ impl<'a> BandsRef for BandsRefImpl<'a> {
 
         // Get band data from the Binary column within the band struct
         let band_data_array = bands_struct
-            .column_by_name(column::DATA)?
+            .column(band_indices::DATA)
             .as_any()
             .downcast_ref::<BinaryArray>()?;
 
@@ -833,25 +863,27 @@ pub struct RasterRefImpl<'a> {
 }
 
 impl<'a> RasterRefImpl<'a> {
-    /// Create a new RasterRefImpl from a struct array and index
+    /// Create a new RasterRefImpl from a struct array and index using hard-coded indices
     pub fn new(raster_struct: &'a StructArray, raster_index: usize) -> Self {
+        let metadata_struct = raster_struct
+            .column(raster_indices::METADATA)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+
+        let bands_list = raster_struct
+            .column(raster_indices::BANDS)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+
         let metadata = MetadataRefImpl {
-            metadata_struct: raster_struct
-                .column_by_name(column::METADATA)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .unwrap(),
+            metadata_struct,
             index: raster_index,
         };
 
         let bands = BandsRefImpl {
-            bands_list: raster_struct
-                .column_by_name(column::BANDS)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<ListArray>()
-                .unwrap(),
+            bands_list,
             raster_index,
         };
 
@@ -1241,5 +1273,161 @@ mod iterator_tests {
 
         // Test out of bounds
         assert!(iterator.get(10).is_none());
+    }
+
+    /// Comprehensive test to verify all hard-coded indices match the actual schema
+    /// This is critical - if this test fails, performance optimizations are broken!
+    #[test]
+    fn test_hardcoded_indices_match_schema() {
+        // Test raster-level indices
+        let raster_fields = RasterSchema::fields();
+        assert_eq!(raster_fields.len(), 2, "Expected exactly 2 raster fields");
+        assert_eq!(
+            raster_fields[raster_indices::METADATA].name(),
+            column::METADATA,
+            "Raster metadata index mismatch"
+        );
+        assert_eq!(
+            raster_fields[raster_indices::BANDS].name(),
+            column::BANDS,
+            "Raster bands index mismatch"
+        );
+
+        // Test metadata indices
+        let metadata_type = RasterSchema::metadata_type();
+        if let DataType::Struct(metadata_fields) = metadata_type {
+            assert_eq!(
+                metadata_fields.len(),
+                9,
+                "Expected exactly 9 metadata fields"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::WIDTH].name(),
+                column::WIDTH,
+                "Metadata width index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::HEIGHT].name(),
+                column::HEIGHT,
+                "Metadata height index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::UPPERLEFT_X].name(),
+                column::UPPERLEFT_X,
+                "Metadata upperleft_x index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::UPPERLEFT_Y].name(),
+                column::UPPERLEFT_Y,
+                "Metadata upperleft_y index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::SCALE_X].name(),
+                column::SCALE_X,
+                "Metadata scale_x index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::SCALE_Y].name(),
+                column::SCALE_Y,
+                "Metadata scale_y index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::SKEW_X].name(),
+                column::SKEW_X,
+                "Metadata skew_x index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::SKEW_Y].name(),
+                column::SKEW_Y,
+                "Metadata skew_y index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::BOUNDING_BOX].name(),
+                column::BOUNDING_BOX,
+                "Metadata bounding_box index mismatch"
+            );
+        } else {
+            panic!("Expected Struct type for metadata");
+        }
+
+        // Test bounding box indices
+        let bbox_type = RasterSchema::bounding_box_type();
+        if let DataType::Struct(bbox_fields) = bbox_type {
+            assert_eq!(
+                bbox_fields.len(),
+                4,
+                "Expected exactly 4 bounding box fields"
+            );
+            assert_eq!(
+                bbox_fields[bounding_box_indices::MIN_X].name(),
+                column::MIN_X,
+                "Bounding box min_x index mismatch"
+            );
+            assert_eq!(
+                bbox_fields[bounding_box_indices::MIN_Y].name(),
+                column::MIN_Y,
+                "Bounding box min_y index mismatch"
+            );
+            assert_eq!(
+                bbox_fields[bounding_box_indices::MAX_X].name(),
+                column::MAX_X,
+                "Bounding box max_x index mismatch"
+            );
+            assert_eq!(
+                bbox_fields[bounding_box_indices::MAX_Y].name(),
+                column::MAX_Y,
+                "Bounding box max_y index mismatch"
+            );
+        } else {
+            panic!("Expected Struct type for bounding box");
+        }
+
+        // Test band metadata indices
+        let band_metadata_type = RasterSchema::band_metadata_type();
+        if let DataType::Struct(band_metadata_fields) = band_metadata_type {
+            assert_eq!(
+                band_metadata_fields.len(),
+                3,
+                "Expected exactly 3 band metadata fields"
+            );
+            assert_eq!(
+                band_metadata_fields[band_metadata_indices::NODATAVALUE].name(),
+                column::NODATAVALUE,
+                "Band metadata nodatavalue index mismatch"
+            );
+            assert_eq!(
+                band_metadata_fields[band_metadata_indices::STORAGE_TYPE].name(),
+                column::STORAGE_TYPE,
+                "Band metadata storage_type index mismatch"
+            );
+            assert_eq!(
+                band_metadata_fields[band_metadata_indices::DATATYPE].name(),
+                column::DATATYPE,
+                "Band metadata datatype index mismatch"
+            );
+        } else {
+            panic!("Expected Struct type for band metadata");
+        }
+
+        // Test band indices
+        let band_type = RasterSchema::band_type();
+        if let DataType::Struct(band_fields) = band_type {
+            assert_eq!(band_fields.len(), 2, "Expected exactly 2 band fields");
+            assert_eq!(
+                band_fields[band_indices::METADATA].name(),
+                column::METADATA,
+                "Band metadata index mismatch"
+            );
+            assert_eq!(
+                band_fields[band_indices::DATA].name(),
+                column::DATA,
+                "Band data index mismatch"
+            );
+        } else {
+            panic!("Expected Struct type for band");
+        }
+
+        println!("✅ All hard-coded indices verified to match schema!");
+        println!("🚀 Performance optimizations are correctly configured!");
     }
 }
