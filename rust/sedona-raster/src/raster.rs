@@ -1,6 +1,6 @@
 use arrow::array::{
-    Array, ArrayRef, BinaryArray, BinaryBuilder, ListArray, ListBuilder, StructArray,
-    StructBuilder, UInt32Array, UInt64Array,
+    Array, ArrayRef, BinaryArray, BinaryBuilder, StringViewArray, ListArray, ListBuilder,
+    StructArray, StructBuilder, UInt32Array, UInt64Array,
 };
 use arrow::buffer::MutableBuffer;
 use arrow::datatypes::{DataType, Field, FieldRef, Fields};
@@ -35,6 +35,8 @@ impl RasterSchema {
             Field::new(column::SKEW_Y, DataType::Float64, false),
             // Optional bounding box
             Field::new(column::BOUNDING_BOX, Self::bounding_box_type(), true),
+            // Optional coordinate reference system (CRS) as json
+            Field::new(column::CRS, DataType::Utf8View, true),
         ]))
     }
 
@@ -114,71 +116,6 @@ pub enum StorageType {
     OutDbRef = 1,
 }
 
-mod column {
-    pub const METADATA: &str = "metadata";
-    pub const BANDS: &str = "bands";
-    pub const BAND: &str = "band";
-    pub const DATA: &str = "data";
-
-    // Raster metadata fields
-    pub const WIDTH: &str = "width";
-    pub const HEIGHT: &str = "height";
-    pub const UPPERLEFT_X: &str = "upperleft_x";
-    pub const UPPERLEFT_Y: &str = "upperleft_y";
-    pub const SCALE_X: &str = "scale_x";
-    pub const SCALE_Y: &str = "scale_y";
-    pub const SKEW_X: &str = "skew_x";
-    pub const SKEW_Y: &str = "skew_y";
-    pub const BOUNDING_BOX: &str = "bounding_box";
-
-    // Bounding box fields
-    pub const MIN_X: &str = "min_x";
-    pub const MIN_Y: &str = "min_y";
-    pub const MAX_X: &str = "max_x";
-    pub const MAX_Y: &str = "max_y";
-
-    // Band metadata fields
-    pub const NODATAVALUE: &str = "nodata_value";
-    pub const STORAGE_TYPE: &str = "storage_type";
-    pub const DATATYPE: &str = "data_type";
-}
-
-/// Hard-coded column indices for maximum performance
-/// These must match the exact order defined in RasterSchema::metadata_type()
-mod metadata_indices {
-    pub const WIDTH: usize = 0;
-    pub const HEIGHT: usize = 1;
-    pub const UPPERLEFT_X: usize = 2;
-    pub const UPPERLEFT_Y: usize = 3;
-    pub const SCALE_X: usize = 4;
-    pub const SCALE_Y: usize = 5;
-    pub const SKEW_X: usize = 6;
-    pub const SKEW_Y: usize = 7;
-    pub const BOUNDING_BOX: usize = 8;
-}
-
-mod bounding_box_indices {
-    pub const MIN_X: usize = 0;
-    pub const MIN_Y: usize = 1;
-    pub const MAX_X: usize = 2;
-    pub const MAX_Y: usize = 3;
-}
-
-mod band_metadata_indices {
-    pub const NODATAVALUE: usize = 0;
-    pub const STORAGE_TYPE: usize = 1;
-    pub const DATATYPE: usize = 2;
-}
-
-mod band_indices {
-    pub const METADATA: usize = 0;
-    pub const DATA: usize = 1;
-}
-
-mod raster_indices {
-    pub const METADATA: usize = 0;
-    pub const BANDS: usize = 1;
-}
 
 /// Builder for constructing raster arrays with zero-copy band data writing
 pub struct RasterBuilder {
@@ -288,23 +225,23 @@ impl RasterBuilder {
 
         if let Some(nodata) = band_metadata.nodata_value {
             metadata_builder
-                .field_builder::<BinaryBuilder>(0)
+                .field_builder::<BinaryBuilder>(band_metadata_indices::NODATAVALUE)
                 .unwrap()
                 .append_value(&nodata);
         } else {
             metadata_builder
-                .field_builder::<BinaryBuilder>(0)
+                .field_builder::<BinaryBuilder>(band_metadata_indices::NODATAVALUE)
                 .unwrap()
                 .append_null();
         }
 
         metadata_builder
-            .field_builder::<arrow::array::UInt32Builder>(1)
+            .field_builder::<arrow::array::UInt32Builder>(band_metadata_indices::STORAGE_TYPE)
             .unwrap()
             .append_value(band_metadata.storage_type as u32);
 
         metadata_builder
-            .field_builder::<arrow::array::UInt32Builder>(2)
+            .field_builder::<arrow::array::UInt32Builder>(band_metadata_indices::DATATYPE)
             .unwrap()
             .append_value(band_metadata.datatype as u32);
 
@@ -325,44 +262,44 @@ impl RasterBuilder {
     fn append_metadata_from_ref(&mut self, metadata: &dyn MetadataRef) -> Result<(), ArrowError> {
         // Width
         self.metadata_builder
-            .field_builder::<arrow::array::UInt64Builder>(0)
+            .field_builder::<arrow::array::UInt64Builder>(metadata_indices::WIDTH)
             .unwrap()
             .append_value(metadata.width());
 
         // Height
         self.metadata_builder
-            .field_builder::<arrow::array::UInt64Builder>(1)
+            .field_builder::<arrow::array::UInt64Builder>(metadata_indices::HEIGHT)
             .unwrap()
             .append_value(metadata.height());
 
         // Geotransform parameters
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(2)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::UPPERLEFT_X)
             .unwrap()
             .append_value(metadata.upper_left_x());
 
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(3)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::UPPERLEFT_Y)
             .unwrap()
             .append_value(metadata.upper_left_y());
 
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(4)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::SCALE_X)
             .unwrap()
             .append_value(metadata.scale_x());
 
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(5)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::SCALE_Y)
             .unwrap()
             .append_value(metadata.scale_y());
 
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(6)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::SKEW_X)
             .unwrap()
             .append_value(metadata.skew_x());
 
         self.metadata_builder
-            .field_builder::<arrow::array::Float64Builder>(7)
+            .field_builder::<arrow::array::Float64Builder>(metadata_indices::SKEW_Y)
             .unwrap()
             .append_value(metadata.skew_y());
 
@@ -370,26 +307,26 @@ impl RasterBuilder {
         if let Some(bbox) = metadata.bounding_box() {
             let bbox_builder = self
                 .metadata_builder
-                .field_builder::<StructBuilder>(8)
+                .field_builder::<StructBuilder>(metadata_indices::BOUNDING_BOX)
                 .unwrap();
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(0)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
                 .unwrap()
                 .append_value(bbox.min_x);
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(1)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
                 .unwrap()
                 .append_value(bbox.min_y);
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(2)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
                 .unwrap()
                 .append_value(bbox.max_x);
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(3)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
                 .unwrap()
                 .append_value(bbox.max_y);
 
@@ -398,26 +335,26 @@ impl RasterBuilder {
             // Append null bounding box - need to fill in null values for all fields
             let bbox_builder = self
                 .metadata_builder
-                .field_builder::<StructBuilder>(8)
+                .field_builder::<StructBuilder>(metadata_indices::BOUNDING_BOX)
                 .unwrap();
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(0)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
                 .unwrap()
                 .append_null();
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(1)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
                 .unwrap()
                 .append_null();
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(2)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
                 .unwrap()
                 .append_null();
 
             bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(3)
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
                 .unwrap()
                 .append_null();
 
@@ -501,6 +438,8 @@ pub trait MetadataRef {
     fn skew_y(&self) -> f64;
     /// Optional bounding box (when available)
     fn bounding_box(&self) -> Option<BoundingBox>;
+    /// Optional coordinate reference system as binary data
+    fn crs(&self) -> Option<&str>;
 }
 
 /// Implement MetadataRef for RasterMetadata to allow direct use with builder
@@ -532,15 +471,18 @@ impl MetadataRef for RasterMetadata {
     fn bounding_box(&self) -> Option<BoundingBox> {
         self.bounding_box.clone()
     }
+    fn crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
 }
 
 /// Trait for accessing individual band metadata
 pub trait BandMetadataRef {
     /// No-data value as raw bytes (None if null)
     fn nodata_value(&self) -> Option<&[u8]>;
-    /// Storage type (InDb or OutDbRef)
+    /// Storage type (InDb, OutDbRef, etc)
     fn storage_type(&self) -> StorageType;
-    /// Band data type (Uint8, Float32, etc.)
+    /// Band data type (UInt8, Float32, etc.)
     fn data_type(&self) -> BandDataType;
 }
 
@@ -687,6 +629,20 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
             None
         }
     }
+
+    fn crs(&self) -> Option<&str> {
+        let crs_array = self
+            .metadata_struct
+            .column(metadata_indices::CRS)
+            .as_any()
+            .downcast_ref::<StringView>()?;
+
+        if crs_array.is_null(self.index) {
+            None
+        } else {
+            Some(crs_array.value(self.index))
+        }
+    }
 }
 
 /// Implementation of BandMetadataRef for Arrow StructArray
@@ -782,6 +738,10 @@ impl<'a> BandsRef for BandsRefImpl<'a> {
         end - start
     }
 
+    /// Get a specific band by index
+    /// IMPORTANT: This function is utilizing zero based band indexing.
+    ///            We may want to consider one-based indexing to match
+    ///            raster standard band conventions.
     fn band(&self, index: usize) -> Option<Box<dyn BandRef + '_>> {
         if index >= self.len() {
             return None;
@@ -977,6 +937,7 @@ pub struct RasterMetadata {
     pub skew_x: f64,
     pub skew_y: f64,
     pub bounding_box: Option<BoundingBox>,
+    pub crs: Option<&str>,
 }
 
 /// Bounding box coordinates
@@ -994,6 +955,76 @@ pub struct BandMetadata {
     pub nodata_value: Option<Vec<u8>>,
     pub storage_type: StorageType,
     pub datatype: BandDataType,
+}
+
+// Private field column name and index constants
+// used across schema, builders and iterators
+mod column {
+    pub const METADATA: &str = "metadata";
+    pub const BANDS: &str = "bands";
+    pub const BAND: &str = "band";
+    pub const DATA: &str = "data";
+
+    // Raster metadata fields
+    pub const WIDTH: &str = "width";
+    pub const HEIGHT: &str = "height";
+    pub const UPPERLEFT_X: &str = "upperleft_x";
+    pub const UPPERLEFT_Y: &str = "upperleft_y";
+    pub const SCALE_X: &str = "scale_x";
+    pub const SCALE_Y: &str = "scale_y";
+    pub const SKEW_X: &str = "skew_x";
+    pub const SKEW_Y: &str = "skew_y";
+    pub const BOUNDING_BOX: &str = "bounding_box";
+    pub const CRS: &str = "crs";
+
+    // Bounding box fields
+    pub const MIN_X: &str = "min_x";
+    pub const MIN_Y: &str = "min_y";
+    pub const MAX_X: &str = "max_x";
+    pub const MAX_Y: &str = "max_y";
+
+    // Band metadata fields
+    pub const NODATAVALUE: &str = "nodata_value";
+    pub const STORAGE_TYPE: &str = "storage_type";
+    pub const DATATYPE: &str = "data_type";
+}
+
+/// Hard-coded column indices for maximum performance
+/// These must match the exact order defined in RasterSchema::metadata_type()
+mod metadata_indices {
+    pub const WIDTH: usize = 0;
+    pub const HEIGHT: usize = 1;
+    pub const UPPERLEFT_X: usize = 2;
+    pub const UPPERLEFT_Y: usize = 3;
+    pub const SCALE_X: usize = 4;
+    pub const SCALE_Y: usize = 5;
+    pub const SKEW_X: usize = 6;
+    pub const SKEW_Y: usize = 7;
+    pub const BOUNDING_BOX: usize = 8;
+    pub const CRS: usize = 9;
+}
+
+mod bounding_box_indices {
+    pub const MIN_X: usize = 0;
+    pub const MIN_Y: usize = 1;
+    pub const MAX_X: usize = 2;
+    pub const MAX_Y: usize = 3;
+}
+
+mod band_metadata_indices {
+    pub const NODATAVALUE: usize = 0;
+    pub const STORAGE_TYPE: usize = 1;
+    pub const DATATYPE: usize = 2;
+}
+
+mod band_indices {
+    pub const METADATA: usize = 0;
+    pub const DATA: usize = 1;
+}
+
+mod raster_indices {
+    pub const METADATA: usize = 0;
+    pub const BANDS: usize = 1;
 }
 
 #[cfg(test)]
@@ -1020,6 +1051,7 @@ mod iterator_tests {
                 max_x: 10.0,
                 max_y: 0.0,
             }),
+            crs: None,
         };
 
         builder.start_raster(&metadata).unwrap();
@@ -1087,6 +1119,7 @@ mod iterator_tests {
             skew_x: 0.0,
             skew_y: 0.0,
             bounding_box: None,
+            crs: None,
         };
 
         builder.start_raster(&metadata).unwrap();
@@ -1153,6 +1186,7 @@ mod iterator_tests {
                 max_x: -120.0,
                 max_y: 37.8,
             }),
+            crs: Some(b"EPSG:4326".to_vec()),
         };
 
         source_builder.start_raster(&original_metadata).unwrap();
@@ -1239,6 +1273,7 @@ mod iterator_tests {
                 skew_x: 0.0,
                 skew_y: 0.0,
                 bounding_box: None,
+                crs: None,
             };
 
             builder.start_raster(&metadata).unwrap();
@@ -1276,7 +1311,6 @@ mod iterator_tests {
     }
 
     /// Comprehensive test to verify all hard-coded indices match the actual schema
-    /// This is critical - if this test fails, performance optimizations are broken!
     #[test]
     fn test_hardcoded_indices_match_schema() {
         // Test raster-level indices
@@ -1298,8 +1332,8 @@ mod iterator_tests {
         if let DataType::Struct(metadata_fields) = metadata_type {
             assert_eq!(
                 metadata_fields.len(),
-                9,
-                "Expected exactly 9 metadata fields"
+                10,
+                "Expected exactly 10 metadata fields"
             );
             assert_eq!(
                 metadata_fields[metadata_indices::WIDTH].name(),
@@ -1345,6 +1379,11 @@ mod iterator_tests {
                 metadata_fields[metadata_indices::BOUNDING_BOX].name(),
                 column::BOUNDING_BOX,
                 "Metadata bounding_box index mismatch"
+            );
+            assert_eq!(
+                metadata_fields[metadata_indices::CRS].name(),
+                column::CRS,
+                "Metadata crs index mismatch"
             );
         } else {
             panic!("Expected Struct type for metadata");
@@ -1426,8 +1465,5 @@ mod iterator_tests {
         } else {
             panic!("Expected Struct type for band");
         }
-
-        println!("✅ All hard-coded indices verified to match schema!");
-        println!("🚀 Performance optimizations are correctly configured!");
     }
 }
