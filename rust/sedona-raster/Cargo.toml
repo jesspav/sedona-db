@@ -1,0 +1,18 @@
+[package]
+name = "sedona-raster"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description.workspace = true
+readme.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints.clippy]
+result_large_err = "allow"
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[dependencies]
+arrow = { workspace = true }
