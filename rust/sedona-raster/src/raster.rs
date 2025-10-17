@@ -1,6 +1,6 @@
 use arrow::array::{
-    Array, ArrayRef, BinaryArray, BinaryBuilder, StringViewArray, ListArray, ListBuilder,
-    StructArray, StructBuilder, UInt32Array, UInt64Array,
+    Array, ArrayRef, BinaryArray, BinaryBuilder, ListArray, ListBuilder, StringViewArray, StringViewBuilder,
+    StructArray, StructBuilder, UInt32Array, UInt64Array
 };
 use arrow::buffer::MutableBuffer;
 use arrow::datatypes::{DataType, Field, FieldRef, Fields};
@@ -16,6 +16,7 @@ impl RasterSchema {
     pub fn fields() -> Fields {
         Fields::from(vec![
             Field::new(column::METADATA, Self::metadata_type(), false),
+            Field::new(column::CRS, Self::crs_type(), true),
             Field::new(column::BANDS, Self::bands_type(), true),
         ])
     }
@@ -35,8 +36,6 @@ impl RasterSchema {
             Field::new(column::SKEW_Y, DataType::Float64, false),
             // Optional bounding box
             Field::new(column::BOUNDING_BOX, Self::bounding_box_type(), true),
-            // Optional coordinate reference system (CRS) as json
-            Field::new(column::CRS, DataType::Utf8View, true),
         ]))
     }
 
@@ -80,6 +79,11 @@ impl RasterSchema {
     pub fn band_data_type() -> DataType {
         DataType::Binary
     }
+
+    /// CRS schema to store json representation
+    pub fn crs_type() -> DataType {
+        DataType::Utf8View
+    }
 }
 
 #[repr(u16)]
@@ -120,6 +124,7 @@ pub enum StorageType {
 /// Builder for constructing raster arrays with zero-copy band data writing
 pub struct RasterBuilder {
     metadata_builder: StructBuilder,
+    crs_builder: StringViewBuilder,
     bands_builder: ListBuilder<StructBuilder>,
 }
 
@@ -150,6 +155,7 @@ impl RasterBuilder {
 
         Self {
             metadata_builder,
+            crs_builder: StringViewBuilder::new(),
             bands_builder,
         }
     }
@@ -160,7 +166,17 @@ impl RasterBuilder {
     /// - RasterMetadata structs directly
     /// - MetadataRef trait objects from iterators
     pub fn start_raster(&mut self, metadata: &dyn MetadataRef) -> Result<(), ArrowError> {
-        self.append_metadata_from_ref(metadata)
+        self.append_metadata_from_ref(metadata)?;
+        // Default to null CRS - user can set it separately with set_crs()
+        self.crs_builder.append_null();
+        Ok(())
+    }
+
+    /// Start a new raster with metadata and optional CRS
+    pub fn start_raster_with_crs(&mut self, metadata: &dyn MetadataRef, crs: Option<&str>) -> Result<(), ArrowError> {
+        self.append_metadata_from_ref(metadata)?;
+        self.set_crs(crs)?;
+        Ok(())
     }
 
     /// Convenience method for starting a raster with owned RasterMetadata
@@ -366,9 +382,19 @@ impl RasterBuilder {
         Ok(())
     }
 
+    /// Set the CRS for the current raster
+    pub fn set_crs(&mut self, crs: Option<&str>) -> Result<(), ArrowError> {
+        match crs {
+            Some(crs_data) => self.crs_builder.append_value(crs_data),
+            None => self.crs_builder.append_null(),
+        }
+        Ok(())
+    }
+
     /// Append a null raster
     pub fn append_null(&mut self) -> Result<(), ArrowError> {
         self.metadata_builder.append(false);
+        self.crs_builder.append_null();
         self.bands_builder.append(false);
         Ok(())
     }
@@ -376,10 +402,15 @@ impl RasterBuilder {
     /// Finish building and return the constructed StructArray
     pub fn finish(mut self) -> Result<StructArray, ArrowError> {
         let metadata_array = self.metadata_builder.finish();
+        let crs_array = self.crs_builder.finish();
         let bands_array = self.bands_builder.finish();
 
         let fields = RasterSchema::fields();
-        let arrays: Vec<ArrayRef> = vec![Arc::new(metadata_array), Arc::new(bands_array)];
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(metadata_array), 
+            Arc::new(crs_array),
+            Arc::new(bands_array)
+        ];
 
         Ok(StructArray::new(fields, arrays, None))
     }
@@ -438,8 +469,6 @@ pub trait MetadataRef {
     fn skew_y(&self) -> f64;
     /// Optional bounding box (when available)
     fn bounding_box(&self) -> Option<BoundingBox>;
-    /// Optional coordinate reference system as binary data
-    fn crs(&self) -> Option<&str>;
 }
 
 /// Implement MetadataRef for RasterMetadata to allow direct use with builder
@@ -470,9 +499,6 @@ impl MetadataRef for RasterMetadata {
     }
     fn bounding_box(&self) -> Option<BoundingBox> {
         self.bounding_box.clone()
-    }
-    fn crs(&self) -> Option<&str> {
-        self.crs.as_deref()
     }
 }
 
@@ -512,6 +538,8 @@ pub trait BandsRef {
 pub trait RasterRef {
     /// Raster metadata accessor
     fn metadata(&self) -> &dyn MetadataRef;
+    /// CRS accessor
+    fn crs(&self) -> Option<&str>;
     /// Bands accessor
     fn bands(&self) -> &dyn BandsRef;
 }
@@ -630,19 +658,6 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
         }
     }
 
-    fn crs(&self) -> Option<&str> {
-        let crs_array = self
-            .metadata_struct
-            .column(metadata_indices::CRS)
-            .as_any()
-            .downcast_ref::<StringView>()?;
-
-        if crs_array.is_null(self.index) {
-            None
-        } else {
-            Some(crs_array.value(self.index))
-        }
-    }
 }
 
 /// Implementation of BandMetadataRef for Arrow StructArray
@@ -819,6 +834,7 @@ impl ExactSizeIterator for BandIterator<'_> {}
 /// Implementation of RasterRef for complete raster access
 pub struct RasterRefImpl<'a> {
     metadata: MetadataRefImpl<'a>,
+    crs: &'a StringViewArray,
     bands: BandsRefImpl<'a>,
 }
 
@@ -829,6 +845,12 @@ impl<'a> RasterRefImpl<'a> {
             .column(raster_indices::METADATA)
             .as_any()
             .downcast_ref::<StructArray>()
+            .unwrap();
+        
+        let crs = raster_struct
+            .column(raster_indices::CRS)
+            .as_any()
+            .downcast_ref::<StringViewArray>()
             .unwrap();
 
         let bands_list = raster_struct
@@ -847,13 +869,21 @@ impl<'a> RasterRefImpl<'a> {
             raster_index,
         };
 
-        Self { metadata, bands }
+        Self { metadata, crs, bands }
     }
 }
 
 impl<'a> RasterRef for RasterRefImpl<'a> {
     fn metadata(&self) -> &dyn MetadataRef {
         &self.metadata
+    }
+
+    fn crs(&self) -> Option<&str> {
+        if self.crs.is_null(self.bands.raster_index) {
+            None
+        } else { 
+           Some(&self.crs.value(self.bands.raster_index))
+        }
     }
 
     fn bands(&self) -> &dyn BandsRef {
@@ -937,7 +967,6 @@ pub struct RasterMetadata {
     pub skew_x: f64,
     pub skew_y: f64,
     pub bounding_box: Option<BoundingBox>,
-    pub crs: Option<&str>,
 }
 
 /// Bounding box coordinates
@@ -1001,7 +1030,6 @@ mod metadata_indices {
     pub const SKEW_X: usize = 6;
     pub const SKEW_Y: usize = 7;
     pub const BOUNDING_BOX: usize = 8;
-    pub const CRS: usize = 9;
 }
 
 mod bounding_box_indices {
@@ -1024,7 +1052,8 @@ mod band_indices {
 
 mod raster_indices {
     pub const METADATA: usize = 0;
-    pub const BANDS: usize = 1;
+    pub const CRS: usize = 1;
+    pub const BANDS: usize = 2;
 }
 
 #[cfg(test)]
@@ -1051,10 +1080,10 @@ mod iterator_tests {
                 max_x: 10.0,
                 max_y: 0.0,
             }),
-            crs: None,
         };
 
-        builder.start_raster(&metadata).unwrap();
+        let epsg4326 = "EPSG:4326";
+        builder.start_raster_with_crs(&metadata, Some(&epsg4326)).unwrap();
 
         let band_metadata = BandMetadata {
             nodata_value: Some(vec![255u8]),
@@ -1066,7 +1095,8 @@ mod iterator_tests {
         let test_data = vec![1u8; 100]; // 10x10 raster with value 1
         builder.band_data_writer().append_value(&test_data);
         builder.finish_band(band_metadata).unwrap();
-        builder.finish_raster();
+        let result = builder.finish_raster();
+        assert!(result.is_ok());
 
         let raster_array = builder.finish().unwrap();
 
@@ -1100,6 +1130,9 @@ mod iterator_tests {
         assert_eq!(band_meta.storage_type(), StorageType::InDb);
         assert_eq!(band_meta.data_type(), BandDataType::UInt8);
 
+        let crs = raster.crs().unwrap();
+        assert_eq!(crs, epsg4326);
+
         // Test iterator over bands
         let band_iter: Vec<_> = bands.iter().collect();
         assert_eq!(band_iter.len(), 1);
@@ -1119,7 +1152,6 @@ mod iterator_tests {
             skew_x: 0.0,
             skew_y: 0.0,
             bounding_box: None,
-            crs: None,
         };
 
         builder.start_raster(&metadata).unwrap();
@@ -1137,7 +1169,9 @@ mod iterator_tests {
             builder.finish_band(band_metadata).unwrap();
         }
 
-        builder.finish_raster();
+        let result = builder.finish_raster();
+        assert!(result.is_ok());
+
         let raster_array = builder.finish().unwrap();
 
         let mut iterator = raster_iterator(&raster_array);
@@ -1186,7 +1220,6 @@ mod iterator_tests {
                 max_x: -120.0,
                 max_y: 37.8,
             }),
-            crs: Some(b"EPSG:4326".to_vec()),
         };
 
         source_builder.start_raster(&original_metadata).unwrap();
@@ -1273,7 +1306,6 @@ mod iterator_tests {
                 skew_x: 0.0,
                 skew_y: 0.0,
                 bounding_box: None,
-                crs: None,
             };
 
             builder.start_raster(&metadata).unwrap();
@@ -1288,7 +1320,8 @@ mod iterator_tests {
             let test_data = vec![raster_idx as u8; size];
             builder.band_data_writer().append_value(&test_data);
             builder.finish_band(band_metadata).unwrap();
-            builder.finish_raster();
+            let result = builder.finish_raster();
+            assert!(result.is_ok());
         }
 
         let raster_array = builder.finish().unwrap();
@@ -1315,11 +1348,16 @@ mod iterator_tests {
     fn test_hardcoded_indices_match_schema() {
         // Test raster-level indices
         let raster_fields = RasterSchema::fields();
-        assert_eq!(raster_fields.len(), 2, "Expected exactly 2 raster fields");
+        assert_eq!(raster_fields.len(), 3, "Expected exactly 2 raster fields");
         assert_eq!(
             raster_fields[raster_indices::METADATA].name(),
             column::METADATA,
             "Raster metadata index mismatch"
+        );
+        assert_eq!(
+            raster_fields[raster_indices::CRS].name(),
+            column::CRS,
+            "CRS bands index mismatch"
         );
         assert_eq!(
             raster_fields[raster_indices::BANDS].name(),
@@ -1332,8 +1370,8 @@ mod iterator_tests {
         if let DataType::Struct(metadata_fields) = metadata_type {
             assert_eq!(
                 metadata_fields.len(),
-                10,
-                "Expected exactly 10 metadata fields"
+                9,
+                "Expected exactly 9 metadata fields"
             );
             assert_eq!(
                 metadata_fields[metadata_indices::WIDTH].name(),
@@ -1380,11 +1418,7 @@ mod iterator_tests {
                 column::BOUNDING_BOX,
                 "Metadata bounding_box index mismatch"
             );
-            assert_eq!(
-                metadata_fields[metadata_indices::CRS].name(),
-                column::CRS,
-                "Metadata crs index mismatch"
-            );
+            
         } else {
             panic!("Expected Struct type for metadata");
         }
