@@ -17,6 +17,7 @@ impl RasterSchema {
         Fields::from(vec![
             Field::new(column::METADATA, Self::metadata_type(), false),
             Field::new(column::CRS, Self::crs_type(), true),
+            Field::new(column::BBOX, Self::bounding_box_type(), true),
             Field::new(column::BANDS, Self::bands_type(), true),
         ])
     }
@@ -34,8 +35,6 @@ impl RasterSchema {
             Field::new(column::SCALE_Y, DataType::Float64, false),
             Field::new(column::SKEW_X, DataType::Float64, false),
             Field::new(column::SKEW_Y, DataType::Float64, false),
-            // Optional bounding box
-            Field::new(column::BOUNDING_BOX, Self::bounding_box_type(), true),
         ]))
     }
 
@@ -125,6 +124,7 @@ pub enum StorageType {
 pub struct RasterBuilder {
     metadata_builder: StructBuilder,
     crs_builder: StringViewBuilder,
+    bbox_builder: StructBuilder,
     bands_builder: ListBuilder<StructBuilder>,
 }
 
@@ -153,35 +153,52 @@ impl RasterBuilder {
             false,
         ));
 
+        let bbox_builder = StructBuilder::from_fields(
+            match RasterSchema::bounding_box_type() {
+                DataType::Struct(fields) => fields,
+                _ => panic!("Expected struct type for bounding box"),
+            },
+            capacity,
+        );
+
         Self {
             metadata_builder,
             crs_builder: StringViewBuilder::new(),
+            bbox_builder,
             bands_builder,
         }
     }
 
-    /// Start a new raster and write its metadata
+    /// Start a new raster with metadata, optional CRS, and optional bounding box
     ///
-    /// Accepts any type that implements MetadataRef, allowing you to pass:
-    /// - RasterMetadata structs directly
-    /// - MetadataRef trait objects from iterators
-    pub fn start_raster(&mut self, metadata: &dyn MetadataRef) -> Result<(), ArrowError> {
-        self.append_metadata_from_ref(metadata)?;
-        // Default to null CRS - user can set it separately with set_crs()
-        self.crs_builder.append_null();
-        Ok(())
-    }
-
-    /// Start a new raster with metadata and optional CRS
-    pub fn start_raster_with_crs(&mut self, metadata: &dyn MetadataRef, crs: Option<&str>) -> Result<(), ArrowError> {
+    /// This is the unified method for starting a raster with all optional parameters.
+    /// 
+    /// # Arguments
+    /// * `metadata` - Raster metadata (dimensions, geotransform parameters)
+    /// * `crs` - Optional coordinate reference system as string
+    /// * `bbox` - Optional bounding box coordinates
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // From iterator - copy all fields from existing raster
+    /// builder.start_raster(raster.metadata(), raster.crs(), raster.bounding_box(0).as_ref())?;
+    /// 
+    /// // From RasterMetadata struct with all fields
+    /// builder.start_raster(&metadata, Some("EPSG:4326"), metadata.bounding_box.as_ref())?;
+    /// 
+    /// // Minimal - just metadata
+    /// builder.start_raster(&metadata, None, None)?;
+    /// ```
+    pub fn start_raster(
+        &mut self, 
+        metadata: &dyn MetadataRef, 
+        crs: Option<&str>, 
+        bbox: Option<&BoundingBox>
+    ) -> Result<(), ArrowError> {
         self.append_metadata_from_ref(metadata)?;
         self.set_crs(crs)?;
+        self.append_bounding_box(bbox)?;
         Ok(())
-    }
-
-    /// Convenience method for starting a raster with owned RasterMetadata
-    pub fn start_raster_owned(&mut self, metadata: RasterMetadata) -> Result<(), ArrowError> {
-        self.start_raster(&metadata)
     }
 
     /// Get direct access to the BinaryBuilder for writing the current band's data
@@ -319,64 +336,6 @@ impl RasterBuilder {
             .unwrap()
             .append_value(metadata.skew_y());
 
-        // Optional bounding box
-        if let Some(bbox) = metadata.bounding_box() {
-            let bbox_builder = self
-                .metadata_builder
-                .field_builder::<StructBuilder>(metadata_indices::BOUNDING_BOX)
-                .unwrap();
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
-                .unwrap()
-                .append_value(bbox.min_x);
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
-                .unwrap()
-                .append_value(bbox.min_y);
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
-                .unwrap()
-                .append_value(bbox.max_x);
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
-                .unwrap()
-                .append_value(bbox.max_y);
-
-            bbox_builder.append(true);
-        } else {
-            // Append null bounding box - need to fill in null values for all fields
-            let bbox_builder = self
-                .metadata_builder
-                .field_builder::<StructBuilder>(metadata_indices::BOUNDING_BOX)
-                .unwrap();
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
-                .unwrap()
-                .append_null();
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
-                .unwrap()
-                .append_null();
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
-                .unwrap()
-                .append_null();
-
-            bbox_builder
-                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
-                .unwrap()
-                .append_null();
-
-            bbox_builder.append(false);
-        }
-
         self.metadata_builder.append(true);
 
         Ok(())
@@ -391,10 +350,62 @@ impl RasterBuilder {
         Ok(())
     }
 
+    /// Append a bounding box to the current raster
+    pub fn append_bounding_box(&mut self, bbox: Option<&BoundingBox>) -> Result<(), ArrowError> {
+        if let Some(bbox) = bbox {
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
+                .unwrap()
+                .append_value(bbox.min_x);
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
+                .unwrap()
+                .append_value(bbox.min_y);
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
+                .unwrap()
+                .append_value(bbox.max_x);
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
+                .unwrap()
+                .append_value(bbox.max_y);
+
+            self.bbox_builder.append(true);
+        } else {
+            // Append null bounding box - need to fill in null values for all fields
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_X)
+                .unwrap()
+                .append_null();
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MIN_Y)
+                .unwrap()
+                .append_null();
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_X)
+                .unwrap()
+                .append_null();
+
+            self.bbox_builder
+                .field_builder::<arrow::array::Float64Builder>(bounding_box_indices::MAX_Y)
+                .unwrap()
+                .append_null();
+
+            self.bbox_builder.append(false);
+        }
+        Ok(())
+    }
+
     /// Append a null raster
     pub fn append_null(&mut self) -> Result<(), ArrowError> {
         self.metadata_builder.append(false);
         self.crs_builder.append_null();
+        self.bbox_builder.append(false);
         self.bands_builder.append(false);
         Ok(())
     }
@@ -403,12 +414,14 @@ impl RasterBuilder {
     pub fn finish(mut self) -> Result<StructArray, ArrowError> {
         let metadata_array = self.metadata_builder.finish();
         let crs_array = self.crs_builder.finish();
+        let bbox_array = self.bbox_builder.finish();
         let bands_array = self.bands_builder.finish();
 
         let fields = RasterSchema::fields();
         let arrays: Vec<ArrayRef> = vec![
             Arc::new(metadata_array), 
             Arc::new(crs_array),
+            Arc::new(bbox_array),
             Arc::new(bands_array)
         ];
 
@@ -428,7 +441,7 @@ impl RasterBuilder {
     where
         F: FnMut(usize, &mut BinaryBuilder) -> Result<BandMetadata, ArrowError>,
     {
-        self.start_raster(&metadata)?;
+        self.start_raster(&metadata, None, metadata.bounding_box.as_ref())?;
 
         for band_index in 0..band_count {
             let band_metadata = {
@@ -467,8 +480,6 @@ pub trait MetadataRef {
     fn skew_x(&self) -> f64;
     /// Y-direction skew/rotation
     fn skew_y(&self) -> f64;
-    /// Optional bounding box (when available)
-    fn bounding_box(&self) -> Option<BoundingBox>;
 }
 
 /// Implement MetadataRef for RasterMetadata to allow direct use with builder
@@ -496,9 +507,6 @@ impl MetadataRef for RasterMetadata {
     }
     fn skew_y(&self) -> f64 {
         self.skew_y
-    }
-    fn bounding_box(&self) -> Option<BoundingBox> {
-        self.bounding_box.clone()
     }
 }
 
@@ -623,40 +631,7 @@ impl<'a> MetadataRef for MetadataRefImpl<'a> {
             .value(self.index)
     }
 
-    fn bounding_box(&self) -> Option<BoundingBox> {
-        // Try to get bounding box if present in schema
-        if let Some(bbox_struct) = self
-            .metadata_struct
-            .column(metadata_indices::BOUNDING_BOX)
-            .as_any()
-            .downcast_ref::<StructArray>()
-        {
-            Some(BoundingBox {
-                min_x: bbox_struct
-                    .column(bounding_box_indices::MIN_X)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Float64Array>()?
-                    .value(self.index),
-                min_y: bbox_struct
-                    .column(bounding_box_indices::MIN_Y)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Float64Array>()?
-                    .value(self.index),
-                max_x: bbox_struct
-                    .column(bounding_box_indices::MAX_X)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Float64Array>()?
-                    .value(self.index),
-                max_y: bbox_struct
-                    .column(bounding_box_indices::MAX_Y)
-                    .as_any()
-                    .downcast_ref::<arrow::array::Float64Array>()?
-                    .value(self.index),
-            })
-        } else {
-            None
-        }
-    }
+
 
 }
 
@@ -835,6 +810,7 @@ impl ExactSizeIterator for BandIterator<'_> {}
 pub struct RasterRefImpl<'a> {
     metadata: MetadataRefImpl<'a>,
     crs: &'a StringViewArray,
+    bbox: &'a StructArray,
     bands: BandsRefImpl<'a>,
 }
 
@@ -853,6 +829,12 @@ impl<'a> RasterRefImpl<'a> {
             .downcast_ref::<StringViewArray>()
             .unwrap();
 
+        let bbox = raster_struct
+            .column(raster_indices::BBOX)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+
         let bands_list = raster_struct
             .column(raster_indices::BANDS)
             .as_any()
@@ -869,7 +851,41 @@ impl<'a> RasterRefImpl<'a> {
             raster_index,
         };
 
-        Self { metadata, crs, bands }
+        Self { metadata, crs, bbox, bands }
+    }
+
+    /// Access the bounding box for this raster
+    pub fn bounding_box(&self, raster_index: usize) -> Option<BoundingBox> {
+        if self.bbox.is_null(raster_index) {
+            None
+        } else {
+            Some(BoundingBox {
+                min_x: self.bbox
+                    .column(bounding_box_indices::MIN_X)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .unwrap()
+                    .value(raster_index),
+                min_y: self.bbox
+                    .column(bounding_box_indices::MIN_Y)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .unwrap()
+                    .value(raster_index),
+                max_x: self.bbox
+                    .column(bounding_box_indices::MAX_X)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .unwrap()
+                    .value(raster_index),
+                max_y: self.bbox
+                    .column(bounding_box_indices::MAX_Y)
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .unwrap()
+                    .value(raster_index),
+            })
+        }
     }
 }
 
@@ -1003,7 +1019,7 @@ mod column {
     pub const SCALE_Y: &str = "scale_y";
     pub const SKEW_X: &str = "skew_x";
     pub const SKEW_Y: &str = "skew_y";
-    pub const BOUNDING_BOX: &str = "bounding_box";
+    pub const BBOX: &str = "bbox";
     pub const CRS: &str = "crs";
 
     // Bounding box fields
@@ -1029,7 +1045,6 @@ mod metadata_indices {
     pub const SCALE_Y: usize = 5;
     pub const SKEW_X: usize = 6;
     pub const SKEW_Y: usize = 7;
-    pub const BOUNDING_BOX: usize = 8;
 }
 
 mod bounding_box_indices {
@@ -1053,7 +1068,8 @@ mod band_indices {
 mod raster_indices {
     pub const METADATA: usize = 0;
     pub const CRS: usize = 1;
-    pub const BANDS: usize = 2;
+    pub const BBOX: usize = 2;
+    pub const BANDS: usize = 3;
 }
 
 #[cfg(test)]
@@ -1083,7 +1099,7 @@ mod iterator_tests {
         };
 
         let epsg4326 = "EPSG:4326";
-        builder.start_raster_with_crs(&metadata, Some(&epsg4326)).unwrap();
+        builder.start_raster(&metadata, Some(&epsg4326), metadata.bounding_box.as_ref()).unwrap();
 
         let band_metadata = BandMetadata {
             nodata_value: Some(vec![255u8]),
@@ -1114,7 +1130,7 @@ mod iterator_tests {
         assert_eq!(metadata.scale_x(), 1.0);
         assert_eq!(metadata.scale_y(), -1.0);
 
-        let bbox = metadata.bounding_box().unwrap();
+        let bbox = raster.bounding_box(0).unwrap();
         assert_eq!(bbox.min_x, 0.0);
         assert_eq!(bbox.max_x, 10.0);
 
@@ -1154,7 +1170,7 @@ mod iterator_tests {
             bounding_box: None,
         };
 
-        builder.start_raster(&metadata).unwrap();
+        builder.start_raster(&metadata, None, None).unwrap();
 
         // Add three bands using the correct API
         for band_idx in 0..3 {
@@ -1222,7 +1238,7 @@ mod iterator_tests {
             }),
         };
 
-        source_builder.start_raster(&original_metadata).unwrap();
+        source_builder.start_raster(&original_metadata, None, original_metadata.bounding_box.as_ref()).unwrap();
 
         let band_metadata = BandMetadata {
             nodata_value: Some(vec![255u8]),
@@ -1244,7 +1260,7 @@ mod iterator_tests {
 
         // Use metadata directly from the iterator (zero-copy!)
         target_builder
-            .start_raster(source_raster.metadata())
+            .start_raster(source_raster.metadata(), source_raster.crs(), source_raster.bounding_box(0).as_ref())
             .unwrap();
 
         // Add new band data while preserving original metadata
@@ -1278,7 +1294,7 @@ mod iterator_tests {
         assert_eq!(target_metadata.scale_x(), 0.1);
         assert_eq!(target_metadata.scale_y(), -0.1);
 
-        let target_bbox = target_metadata.bounding_box().unwrap();
+        let target_bbox = target_raster.bounding_box(0).unwrap();
         assert_eq!(target_bbox.min_x, -122.0);
         assert_eq!(target_bbox.max_x, -120.0);
 
@@ -1308,7 +1324,7 @@ mod iterator_tests {
                 bounding_box: None,
             };
 
-            builder.start_raster(&metadata).unwrap();
+            builder.start_raster(&metadata, None, None).unwrap();
 
             let band_metadata = BandMetadata {
                 nodata_value: Some(vec![255u8]),
@@ -1348,7 +1364,7 @@ mod iterator_tests {
     fn test_hardcoded_indices_match_schema() {
         // Test raster-level indices
         let raster_fields = RasterSchema::fields();
-        assert_eq!(raster_fields.len(), 3, "Expected exactly 2 raster fields");
+        assert_eq!(raster_fields.len(), 4, "Expected exactly 4 raster fields");
         assert_eq!(
             raster_fields[raster_indices::METADATA].name(),
             column::METADATA,
@@ -1357,7 +1373,12 @@ mod iterator_tests {
         assert_eq!(
             raster_fields[raster_indices::CRS].name(),
             column::CRS,
-            "CRS bands index mismatch"
+            "Raster CRS index mismatch"
+        );
+        assert_eq!(
+            raster_fields[raster_indices::BBOX].name(),
+            column::BBOX,
+            "Raster BBOX index mismatch"
         );
         assert_eq!(
             raster_fields[raster_indices::BANDS].name(),
@@ -1370,8 +1391,8 @@ mod iterator_tests {
         if let DataType::Struct(metadata_fields) = metadata_type {
             assert_eq!(
                 metadata_fields.len(),
-                9,
-                "Expected exactly 9 metadata fields"
+                8,
+                "Expected exactly 8 metadata fields"
             );
             assert_eq!(
                 metadata_fields[metadata_indices::WIDTH].name(),
@@ -1412,11 +1433,6 @@ mod iterator_tests {
                 metadata_fields[metadata_indices::SKEW_Y].name(),
                 column::SKEW_Y,
                 "Metadata skew_y index mismatch"
-            );
-            assert_eq!(
-                metadata_fields[metadata_indices::BOUNDING_BOX].name(),
-                column::BOUNDING_BOX,
-                "Metadata bounding_box index mismatch"
             );
             
         } else {
