@@ -16,16 +16,18 @@
 // under the License.
 use std::{sync::Arc, vec};
 
-use crate::executor::WkbExecutor;
+use crate::executor::RasterExecutor;
 use arrow_array::builder::UInt64Builder;
 use arrow_schema::DataType;
-use datafusion_common::error::{DataFusionError, Result};
+use datafusion_common::error::Result;
 use datafusion_expr::{
     scalar_doc_sections::DOC_SECTION_OTHER, ColumnarValue, Documentation, Volatility,
 };
-use sedona_common::sedona_internal_err;
 use sedona_expr::scalar_udf::{SedonaScalarKernel, SedonaScalarUDF};
-use sedona_schema::{datatypes::SedonaType, matchers::ArgMatcher};
+use sedona_schema::{
+    datatypes::{RasterRef, SedonaType}, 
+    matchers::ArgMatcher
+};
 
 /// RS_Width() scalar UDF implementation
 ///
@@ -42,11 +44,15 @@ pub fn rs_width_udf() -> SedonaScalarUDF {
 fn rs_width_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
-        format!("Return the width component of a raster",),
+        format!(
+            "Return the width component of a raster",
+        ),
         format!("RS_Width(raster: Raster)"),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example(format!("SELECT RS_Width(raster)",))
+    .with_sql_example(format!(
+        "SELECT RS_Width(raster)",
+    ))
     .build()
 }
 
@@ -68,30 +74,32 @@ impl SedonaScalarKernel for RS_Width {
         arg_types: &[SedonaType],
         args: &[ColumnarValue],
     ) -> Result<ColumnarValue> {
-        let rasters = args[0].to_array();
-        let mut builder = UInt64Builder::with_capacity(args[0].len());
+        let executor = RasterExecutor::new(arg_types, args);
+        let mut builder = UInt64Builder::with_capacity(executor.num_iterations());
 
-        for raster in rasters.iter() {
-            match raster {
-                Some(raster) => {
-                    builder.append_value(raster.metadata().width());
-                }
+        executor.execute_raster_void(|_i, raster_opt| {
+            match raster_opt {
                 None => builder.append_null(),
+                Some(raster) => {
+                    let width = raster.metadata().width();
+                    builder.append_value(width);
+                }
             }
-        }
+            Ok(())
+        })?;
 
-        Ok(ColumnarValue::from(builder.finish()))
+        executor.finish(Arc::new(builder.finish()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::{create_array, ArrayRef};
-    use datafusion_common::ScalarValue;
+    use arrow_array::{Array, ArrayRef, UInt64Array};
     use datafusion_expr::ScalarUDF;
-    use rstest::rstest;
-    use sedona_testing::{create::create_array, testers::ScalarUdfTester};
+    use sedona_schema::datatypes::{
+        BandDataType, BandMetadata, RasterBuilder, RasterMetadata, StorageType, RASTER,
+    };
 
     #[test]
     fn udf_metadata() {
@@ -100,44 +108,80 @@ mod tests {
         assert!(udf.documentation().is_some());
     }
 
-    #[rstest]
+    #[test]
     fn udf_invoke() {
-        let raster_array = create_array(
-            &[gen_raster(10, 12), None, gen_raster(30, 15)],
-            &WKB_GEOMETRY,
-        );
-        let expected: ArrayRef = create_array!(UInt64, [Some(10), None, Some(30),]);
-        assert_eq!(
-            &x_tester.invoke_array(wkb_array.clone()).unwrap(),
-            &expected_x
-        );
+        // Create test rasters with different widths
+        let raster_array = create_test_raster_array();
+        
+        // Create the UDF and invoke it
+        let kernel = RS_Width {};
+        let args = vec![ColumnarValue::Array(raster_array)];
+        let arg_types = vec![RASTER];
+        
+        let result = kernel.invoke_batch(&arg_types, &args).unwrap();
+        
+        // Check the result
+        if let ColumnarValue::Array(result_array) = result {
+            let width_array = result_array.as_any().downcast_ref::<UInt64Array>().unwrap();
+            
+            assert_eq!(width_array.len(), 2);
+            assert_eq!(width_array.value(0), 10); // First raster width
+            assert_eq!(width_array.value(1), 30); // Second raster width
+        } else {
+            panic!("Expected array result");
+        }
     }
 
-    /// Generate a raster with the specified width, height, and value.
-    /// This should be improved and moved into sedona-testing
-    fn gen_raster(width: usize, height: usize) -> StructArray {
-        let mut builder = Raster::builder();
-
-        let metadata = RasterMetadata {
-            width,
-            height,
-            ..Default::default()
+    /// Create a test raster array with different widths for testing
+    fn create_test_raster_array() -> ArrayRef {
+        let mut builder = RasterBuilder::new(10);
+        
+        // First raster: 10x12
+        let metadata1 = RasterMetadata {
+            width: 10,
+            height: 12,
+            upperleft_x: 0.0,
+            upperleft_y: 0.0,
+            scale_x: 1.0,
+            scale_y: -1.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            bounding_box: None,
         };
 
         let band_metadata = BandMetadata {
             nodata_value: Some(vec![255u8]),
             storage_type: StorageType::InDb,
             datatype: BandDataType::UInt8,
+            outdb_url: None,
+            outdb_band_id: None,
         };
 
-        builder.start_raster(&metadata, None, None).unwrap();
+        builder.start_raster(&metadata1, None, None).unwrap();
+        let test_data1 = vec![1u8; 10 * 12]; // width * height
+        builder.band_data_writer().append_value(&test_data1);
+        builder.finish_band(band_metadata.clone()).unwrap();
+        builder.finish_raster().unwrap();
 
-        let size = width * height * 8;
-        let test_data = vec![value as u8; size];
-        builder.band_data_writer().append_value(&test_data);
+        // Second raster: 30x15
+        let metadata2 = RasterMetadata {
+            width: 30,
+            height: 15,
+            upperleft_x: 0.0,
+            upperleft_y: 0.0,
+            scale_x: 1.0,
+            scale_y: -1.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            bounding_box: None,
+        };
+
+        builder.start_raster(&metadata2, None, None).unwrap();
+        let test_data2 = vec![1u8; 30 * 15]; // width * height
+        builder.band_data_writer().append_value(&test_data2);
         builder.finish_band(band_metadata).unwrap();
-        builder.finish_raster();
+        builder.finish_raster().unwrap();
 
-        builder.finish().unwrap()
+        Arc::new(builder.finish().unwrap())
     }
 }

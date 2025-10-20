@@ -281,6 +281,11 @@ fn geoarrow_type_id(sedona_type: &SedonaType) -> Result<GeoArrowType, GeoArrowCE
                 )));
             }
         },
+        SedonaType::Raster(_) => {
+            return Err(GeoArrowCError::Invalid(
+                "GeoArrow type ID not defined for Raster types".to_string(),
+            ));
+        }
     };
 
     Ok(type_id)

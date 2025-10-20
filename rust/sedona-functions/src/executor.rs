@@ -16,14 +16,14 @@
 // under the License.
 use std::iter::zip;
 
-use arrow_array::ArrayRef;
+use arrow_array::{Array, ArrayRef, StructArray};
 use arrow_schema::DataType;
 use datafusion_common::cast::{as_binary_array, as_binary_view_array};
 use datafusion_common::error::Result;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::ColumnarValue;
 use sedona_common::sedona_internal_err;
-use sedona_schema::datatypes::SedonaType;
+use sedona_schema::datatypes::{SedonaType, raster_iterator, RasterRefImpl};
 use wkb::reader::Wkb;
 
 /// Helper for writing general kernel implementations with geometry
@@ -74,6 +74,118 @@ pub struct GenericExecutor<'a, 'b, Factory0, Factory1> {
 
 /// Alias for an executor that iterates over geometries as [Wkb]
 pub type WkbExecutor<'a, 'b> = GenericExecutor<'a, 'b, WkbGeometryFactory, WkbGeometryFactory>;
+
+/// Helper for writing raster kernel implementations
+///
+/// The [RasterExecutor] provides a simplified interface for executing functions
+/// on raster arrays, handling the common pattern of downcasting to StructArray,
+/// creating raster iterators, and handling null values.
+pub struct RasterExecutor<'a, 'b> {
+    pub arg_types: &'a [SedonaType],
+    pub args: &'b [ColumnarValue],
+    num_iterations: usize,
+}
+
+impl<'a, 'b> RasterExecutor<'a, 'b> {
+    /// Create a new [RasterExecutor]
+    pub fn new(arg_types: &'a [SedonaType], args: &'b [ColumnarValue]) -> Self {
+        Self {
+            arg_types,
+            args,
+            num_iterations: Self::calc_num_iterations(args),
+        }
+    }
+
+    /// Return the number of iterations that will be performed
+    pub fn num_iterations(&self) -> usize {
+        self.num_iterations
+    }
+
+    /// Execute a function by iterating over rasters in the first argument
+    ///
+    /// This handles the common pattern of:
+    /// 1. Downcasting array to StructArray
+    /// 2. Creating raster iterator
+    /// 3. Iterating with null checks
+    /// 4. Calling the provided function with each raster
+    pub fn execute_raster_void<F>(&self, mut func: F) -> Result<()>
+    where
+        F: FnMut(usize, Option<sedona_schema::datatypes::RasterRefImpl<'_>>) -> Result<()>,
+    {
+        let raster_array = match &self.args[0] {
+            ColumnarValue::Array(array) => array,
+            ColumnarValue::Scalar(_) => {
+                return Err(DataFusionError::NotImplemented(
+                    "Scalar raster input not yet supported".to_string()
+                ));
+            }
+        };
+
+        // Downcast to StructArray (rasters are stored as structs)
+        let raster_struct = raster_array
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .ok_or_else(|| DataFusionError::Internal(
+                "Expected StructArray for raster data".to_string()
+            ))?;
+
+        // Create raster iterator
+        let iterator = raster_iterator(raster_struct);
+
+        // Iterate through each raster in the array
+        for i in 0..self.num_iterations {
+            if raster_struct.is_null(i) {
+                func(i, None)?;
+            } else {
+                // Get the raster at this index
+                let raster = iterator.get(i).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        format!("Failed to get raster at index {}", i)
+                    )
+                })?;
+                func(i, Some(raster))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Finish an [ArrayRef] output as the appropriate [ColumnarValue]
+    ///
+    /// Converts the output into a [ColumnarValue::Scalar] if all arguments were scalars,
+    /// or a [ColumnarValue::Array] otherwise.
+    pub fn finish(&self, out: ArrayRef) -> Result<ColumnarValue> {
+        for arg in self.args {
+            match arg {
+                // If any argument was an array, we return an array
+                ColumnarValue::Array(_) => {
+                    return Ok(ColumnarValue::Array(out));
+                }
+                ColumnarValue::Scalar(_) => {}
+            }
+        }
+
+        // For all scalar arguments, we return a scalar
+        Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?))
+    }
+
+    /// Calculates the number of iterations that should happen based on the
+    /// argument ColumnarValue types
+    fn calc_num_iterations(args: &[ColumnarValue]) -> usize {
+        for arg in args {
+            match arg {
+                // If any argument is an array, we have to iterate array.len() times
+                ColumnarValue::Array(array) => {
+                    return array.len();
+                }
+                ColumnarValue::Scalar(_) => {}
+            }
+        }
+
+        // All scalars: we iterate once
+        1
+    }
+}
 
 impl<'a, 'b, Factory0: GeometryFactory, Factory1: GeometryFactory>
     GenericExecutor<'a, 'b, Factory0, Factory1>

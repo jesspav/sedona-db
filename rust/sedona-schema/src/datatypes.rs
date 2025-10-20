@@ -14,12 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+use arrow::buffer::MutableBuffer;
 use arrow_array::{
-    builder::{BinaryBuilder, Float64Builder, UInt32Builder, UInt64Builder, StructBuilder, StringViewBuilder, ListBuilder}, 
-    BinaryArray, ListArray, StringViewArray, StructArray, UInt32Array,
-    UInt64Array, Float64Array, ArrayRef, Array
+    builder::{
+        BinaryBuilder, Float64Builder, ListBuilder, StringBuilder, StringViewBuilder, StructBuilder,
+        UInt32Builder, UInt64Builder,
+    },
+    Array, ArrayRef, BinaryArray, Float64Array, ListArray, StringArray, StringViewArray, StructArray,
+    UInt32Array, UInt64Array,
 };
-use arrow::{buffer::MutableBuffer};
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion_common::error::{DataFusionError, Result};
 use sedona_common::sedona_internal_err;
@@ -87,7 +90,8 @@ pub const RASTER: SedonaType = SedonaType::Raster(RasterSchema);
 
 /// Create a static value for the [`SedonaType::Raster`] that's initialized exactly once,
 /// on first access
-static RASTER_DATATYPE: LazyLock<DataType> = LazyLock::new(|| DataType::Struct(RasterSchema::fields()));
+static RASTER_DATATYPE: LazyLock<DataType> =
+    LazyLock::new(|| DataType::Struct(RasterSchema::fields()));
 
 impl SedonaType {
     /// Given a field as it would appear in an external Schema return the appropriate SedonaType
@@ -149,13 +153,11 @@ impl SedonaType {
                     Some(serialize_edges_and_crs(edges, crs)),
                 ))
             }
-            SedonaType::Raster(_) => {
-                Some(ExtensionType::new(
-                    self.extension_name().unwrap(),
-                    self.storage_type().clone(),
-                    None,
-                ))
-            }
+            SedonaType::Raster(_) => Some(ExtensionType::new(
+                self.extension_name().unwrap(),
+                self.storage_type().clone(),
+                None,
+            )),
             _ => None,
         }
     }
@@ -424,6 +426,9 @@ impl RasterSchema {
             Field::new(column::NODATAVALUE, DataType::Binary, true), // Allow null nodata values
             Field::new(column::STORAGE_TYPE, DataType::UInt32, false),
             Field::new(column::DATATYPE, DataType::UInt32, false),
+            // OutDb reference fields - only used when storage_type == OutDbRef
+            Field::new(column::OUTDB_URL, DataType::Utf8, true),
+            Field::new(column::OUTDB_BAND_ID, DataType::UInt32, true),
         ]))
     }
 
@@ -629,6 +634,32 @@ impl RasterBuilder {
             .field_builder::<UInt32Builder>(band_metadata_indices::DATATYPE)
             .unwrap()
             .append_value(band_metadata.datatype as u32);
+
+        // Handle OutDb URL
+        if let Some(url) = band_metadata.outdb_url {
+            metadata_builder
+                .field_builder::<StringBuilder>(band_metadata_indices::OUTDB_URL)
+                .unwrap()
+                .append_value(&url);
+        } else {
+            metadata_builder
+                .field_builder::<StringBuilder>(band_metadata_indices::OUTDB_URL)
+                .unwrap()
+                .append_null();
+        }
+
+        // Handle OutDb band ID
+        if let Some(band_id) = band_metadata.outdb_band_id {
+            metadata_builder
+                .field_builder::<UInt32Builder>(band_metadata_indices::OUTDB_BAND_ID)
+                .unwrap()
+                .append_value(band_id);
+        } else {
+            metadata_builder
+                .field_builder::<UInt32Builder>(band_metadata_indices::OUTDB_BAND_ID)
+                .unwrap()
+                .append_null();
+        }
 
         metadata_builder.append(true);
 
@@ -870,6 +901,10 @@ pub trait BandMetadataRef {
     fn storage_type(&self) -> StorageType;
     /// Band data type (UInt8, Float32, etc.)
     fn data_type(&self) -> BandDataType;
+    /// OutDb URL (only used when storage_type == OutDbRef)
+    fn outdb_url(&self) -> Option<&str>;
+    /// OutDb band ID (only used when storage_type == OutDbRef)
+    fn outdb_band_id(&self) -> Option<u32>;
 }
 
 /// Trait for accessing individual band data
@@ -1044,6 +1079,36 @@ impl<'a> BandMetadataRef for BandMetadataRefImpl<'a> {
                 "Unknown band data type: {}",
                 datatype_array.value(self.band_index)
             ),
+        }
+    }
+
+    fn outdb_url(&self) -> Option<&str> {
+        let url_array = self
+            .metadata_struct
+            .column(band_metadata_indices::OUTDB_URL)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("Expected StringArray for outdb_url");
+
+        if url_array.is_null(self.band_index) {
+            None
+        } else {
+            Some(url_array.value(self.band_index))
+        }
+    }
+
+    fn outdb_band_id(&self) -> Option<u32> {
+        let band_id_array = self
+            .metadata_struct
+            .column(band_metadata_indices::OUTDB_BAND_ID)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .expect("Expected UInt32Array for outdb_band_id");
+
+        if band_id_array.is_null(self.band_index) {
+            None
+        } else {
+            Some(band_id_array.value(self.band_index))
         }
     }
 }
@@ -1358,6 +1423,10 @@ pub struct BandMetadata {
     pub nodata_value: Option<Vec<u8>>,
     pub storage_type: StorageType,
     pub datatype: BandDataType,
+    /// URL for OutDb reference (only used when storage_type == OutDbRef)
+    pub outdb_url: Option<String>,
+    /// Band ID within the OutDb resource (only used when storage_type == OutDbRef)
+    pub outdb_band_id: Option<u32>,
 }
 
 // Private field column name and index constants
@@ -1390,6 +1459,8 @@ mod column {
     pub const NODATAVALUE: &str = "nodata_value";
     pub const STORAGE_TYPE: &str = "storage_type";
     pub const DATATYPE: &str = "data_type";
+    pub const OUTDB_URL: &str = "outdb_url";
+    pub const OUTDB_BAND_ID: &str = "outdb_band_id";
 }
 
 /// Hard-coded column indices for maximum performance
@@ -1416,6 +1487,8 @@ mod band_metadata_indices {
     pub const NODATAVALUE: usize = 0;
     pub const STORAGE_TYPE: usize = 1;
     pub const DATATYPE: usize = 2;
+    pub const OUTDB_URL: usize = 3;
+    pub const OUTDB_BAND_ID: usize = 4;
 }
 
 mod band_indices {
@@ -1429,8 +1502,6 @@ mod raster_indices {
     pub const BBOX: usize = 2;
     pub const BANDS: usize = 3;
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1649,7 +1720,7 @@ mod tests {
             .contains("Unsupported edges value"));
     }
 
-        #[test]
+    #[test]
     fn test_iterator_basic_functionality() {
         // Create a simple raster for testing using the correct API
         let mut builder = RasterBuilder::new(10); // capacity
@@ -1680,6 +1751,8 @@ mod tests {
             nodata_value: Some(vec![255u8]),
             storage_type: StorageType::InDb,
             datatype: BandDataType::UInt8,
+            outdb_url: None,
+            outdb_band_id: None,
         };
 
         // Add a single band with some test data using the correct API
@@ -1753,6 +1826,8 @@ mod tests {
                 nodata_value: Some(vec![255u8]),
                 storage_type: StorageType::InDb,
                 datatype: BandDataType::UInt8,
+                outdb_url: None,
+                outdb_band_id: None,
             };
 
             let test_data = vec![band_idx as u8; 25]; // 5x5 raster
@@ -1825,6 +1900,8 @@ mod tests {
             nodata_value: Some(vec![255u8]),
             storage_type: StorageType::InDb,
             datatype: BandDataType::UInt8,
+            outdb_url: None,
+            outdb_band_id: None,
         };
 
         let test_data = vec![42u8; 1008]; // 42x24 raster
@@ -1853,6 +1930,8 @@ mod tests {
             nodata_value: None,
             storage_type: StorageType::InDb,
             datatype: BandDataType::UInt16,
+            outdb_url: None,
+            outdb_band_id: None,
         };
 
         let new_data = vec![100u16; 1008]; // Different data, same dimensions
@@ -1915,6 +1994,8 @@ mod tests {
                 nodata_value: Some(vec![255u8]),
                 storage_type: StorageType::InDb,
                 datatype: BandDataType::UInt8,
+                outdb_url: None,
+                outdb_band_id: None,
             };
 
             let size = (raster_idx + 1) * (raster_idx + 1);
@@ -2060,8 +2141,8 @@ mod tests {
         if let DataType::Struct(band_metadata_fields) = band_metadata_type {
             assert_eq!(
                 band_metadata_fields.len(),
-                3,
-                "Expected exactly 3 band metadata fields"
+                5,
+                "Expected exactly 5 band metadata fields"
             );
             assert_eq!(
                 band_metadata_fields[band_metadata_indices::NODATAVALUE].name(),
@@ -2077,6 +2158,16 @@ mod tests {
                 band_metadata_fields[band_metadata_indices::DATATYPE].name(),
                 column::DATATYPE,
                 "Band metadata datatype index mismatch"
+            );
+            assert_eq!(
+                band_metadata_fields[band_metadata_indices::OUTDB_URL].name(),
+                column::OUTDB_URL,
+                "Band metadata outdb_url index mismatch"
+            );
+            assert_eq!(
+                band_metadata_fields[band_metadata_indices::OUTDB_BAND_ID].name(),
+                column::OUTDB_BAND_ID,
+                "Band metadata outdb_band_id index mismatch"
             );
         } else {
             panic!("Expected Struct type for band metadata");
@@ -2123,12 +2214,42 @@ mod tests {
         // Test all BandDataType variants
         let test_cases = vec![
             (BandDataType::UInt8, vec![1u8, 2u8, 3u8, 4u8]),
-            (BandDataType::UInt16, vec![1u8, 0u8, 2u8, 0u8, 3u8, 0u8, 4u8, 0u8]), // little-endian u16
-            (BandDataType::Int16, vec![255u8, 255u8, 254u8, 255u8, 253u8, 255u8, 252u8, 255u8]), // little-endian i16
-            (BandDataType::UInt32, vec![1u8, 0u8, 0u8, 0u8, 2u8, 0u8, 0u8, 0u8, 3u8, 0u8, 0u8, 0u8, 4u8, 0u8, 0u8, 0u8]), // little-endian u32
-            (BandDataType::Int32, vec![255u8, 255u8, 255u8, 255u8, 254u8, 255u8, 255u8, 255u8, 253u8, 255u8, 255u8, 255u8, 252u8, 255u8, 255u8, 255u8]), // little-endian i32
-            (BandDataType::Float32, vec![0u8, 0u8, 128u8, 63u8, 0u8, 0u8, 0u8, 64u8, 0u8, 0u8, 64u8, 64u8, 0u8, 0u8, 128u8, 64u8]), // little-endian f32: 1.0, 2.0, 3.0, 4.0
-            (BandDataType::Float64, vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 240u8, 63u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 64u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 8u8, 64u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 16u8, 64u8]), // little-endian f64: 1.0, 2.0, 3.0, 4.0
+            (
+                BandDataType::UInt16,
+                vec![1u8, 0u8, 2u8, 0u8, 3u8, 0u8, 4u8, 0u8],
+            ), // little-endian u16
+            (
+                BandDataType::Int16,
+                vec![255u8, 255u8, 254u8, 255u8, 253u8, 255u8, 252u8, 255u8],
+            ), // little-endian i16
+            (
+                BandDataType::UInt32,
+                vec![
+                    1u8, 0u8, 0u8, 0u8, 2u8, 0u8, 0u8, 0u8, 3u8, 0u8, 0u8, 0u8, 4u8, 0u8, 0u8, 0u8,
+                ],
+            ), // little-endian u32
+            (
+                BandDataType::Int32,
+                vec![
+                    255u8, 255u8, 255u8, 255u8, 254u8, 255u8, 255u8, 255u8, 253u8, 255u8, 255u8,
+                    255u8, 252u8, 255u8, 255u8, 255u8,
+                ],
+            ), // little-endian i32
+            (
+                BandDataType::Float32,
+                vec![
+                    0u8, 0u8, 128u8, 63u8, 0u8, 0u8, 0u8, 64u8, 0u8, 0u8, 64u8, 64u8, 0u8, 0u8,
+                    128u8, 64u8,
+                ],
+            ), // little-endian f32: 1.0, 2.0, 3.0, 4.0
+            (
+                BandDataType::Float64,
+                vec![
+                    0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 240u8, 63u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                    64u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 8u8, 64u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                    16u8, 64u8,
+                ],
+            ), // little-endian f64: 1.0, 2.0, 3.0, 4.0
         ];
 
         for (expected_data_type, test_data) in test_cases {
@@ -2136,6 +2257,8 @@ mod tests {
                 nodata_value: None,
                 storage_type: StorageType::InDb,
                 datatype: expected_data_type.clone(),
+                outdb_url: None,
+                outdb_band_id: None,
             };
 
             builder.band_data_writer().append_value(&test_data);
@@ -2167,12 +2290,89 @@ mod tests {
             let band = bands.band(i).unwrap();
             let band_metadata = band.metadata();
             let actual_type = band_metadata.data_type();
-            
+
             assert_eq!(
                 actual_type, *expected_type,
                 "Band {} expected data type {:?}, got {:?}",
                 i, expected_type, actual_type
             );
         }
+    }
+
+    #[test]
+    fn test_outdb_metadata_fields() {
+        // Test creating raster with OutDb reference metadata
+        let mut builder = RasterBuilder::new(10);
+
+        let metadata = RasterMetadata {
+            width: 1024,
+            height: 1024,
+            upperleft_x: 0.0,
+            upperleft_y: 0.0,
+            scale_x: 1.0,
+            scale_y: -1.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            bounding_box: None,
+        };
+
+        builder.start_raster(&metadata, None, None).unwrap();
+
+        // Test InDb band (should have null OutDb fields)
+        let indb_band_metadata = BandMetadata {
+            nodata_value: Some(vec![255u8]),
+            storage_type: StorageType::InDb,
+            datatype: BandDataType::UInt8,
+            outdb_url: None,
+            outdb_band_id: None,
+        };
+
+        let test_data = vec![1u8; 100];
+        builder.band_data_writer().append_value(&test_data);
+        builder.finish_band(indb_band_metadata).unwrap();
+
+        // Test OutDbRef band (should have OutDb fields populated)
+        let outdb_band_metadata = BandMetadata {
+            nodata_value: None,
+            storage_type: StorageType::OutDbRef,
+            datatype: BandDataType::Float32,
+            outdb_url: Some("s3://mybucket/satellite_image.tif".to_string()),
+            outdb_band_id: Some(2),
+        };
+
+        // For OutDbRef, data field could be empty or contain metadata/thumbnail
+        builder.band_data_writer().append_value(&[]);
+        builder.finish_band(outdb_band_metadata).unwrap();
+
+        builder.finish_raster().unwrap();
+        let raster_array = builder.finish().unwrap();
+
+        // Verify the band metadata
+        let iterator = raster_iterator(&raster_array);
+        let raster = iterator.get(0).unwrap();
+        let bands = raster.bands();
+
+        assert_eq!(bands.len(), 2);
+
+        // Test InDb band
+        let indb_band = bands.band(0).unwrap();
+        let indb_metadata = indb_band.metadata();
+        assert_eq!(indb_metadata.storage_type(), StorageType::InDb);
+        assert_eq!(indb_metadata.data_type(), BandDataType::UInt8);
+        assert!(indb_metadata.outdb_url().is_none());
+        assert!(indb_metadata.outdb_band_id().is_none());
+        assert_eq!(indb_band.data().len(), 100);
+
+        // Test OutDbRef band
+        let outdb_band = bands.band(1).unwrap();
+        let outdb_metadata = outdb_band.metadata();
+        assert_eq!(outdb_metadata.storage_type(), StorageType::OutDbRef);
+        assert_eq!(outdb_metadata.data_type(), BandDataType::Float32);
+        assert_eq!(
+            outdb_metadata.outdb_url().unwrap(),
+            "s3://mybucket/satellite_image.tif"
+        );
+        assert_eq!(outdb_metadata.outdb_band_id().unwrap(), 2);
+        assert_eq!(outdb_band.data().len(), 0); // Empty data for OutDbRef
     }
 }
