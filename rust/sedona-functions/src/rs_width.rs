@@ -124,9 +124,10 @@ mod tests {
         if let ColumnarValue::Array(result_array) = result {
             let width_array = result_array.as_any().downcast_ref::<UInt64Array>().unwrap();
             
-            assert_eq!(width_array.len(), 2);
+            assert_eq!(width_array.len(), 3);
             assert_eq!(width_array.value(0), 10); // First raster width
-            assert_eq!(width_array.value(1), 30); // Second raster width
+            assert!(width_array.is_null(1)); // Second raster is null
+            assert_eq!(width_array.value(2), 30); // Third raster width
         } else {
             panic!("Expected array result");
         }
@@ -163,8 +164,11 @@ mod tests {
         builder.finish_band(band_metadata.clone()).unwrap();
         builder.finish_raster().unwrap();
 
-        // Second raster: 30x15
-        let metadata2 = RasterMetadata {
+        // Second raster: null
+        builder.append_null().unwrap();
+
+        // Third raster: 30x15
+        let metadata3 = RasterMetadata {
             width: 30,
             height: 15,
             upperleft_x: 0.0,
@@ -176,9 +180,9 @@ mod tests {
             bounding_box: None,
         };
 
-        builder.start_raster(&metadata2, None, None).unwrap();
-        let test_data2 = vec![1u8; 30 * 15]; // width * height
-        builder.band_data_writer().append_value(&test_data2);
+        builder.start_raster(&metadata3, None, None).unwrap();
+        let test_data3 = vec![3u8; 30 * 15]; // width * height
+        builder.band_data_writer().append_value(&test_data3);
         builder.finish_band(band_metadata).unwrap();
         builder.finish_raster().unwrap();
 
