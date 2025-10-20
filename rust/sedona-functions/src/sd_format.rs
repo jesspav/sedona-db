@@ -127,6 +127,7 @@ impl SedonaScalarKernel for SDFormatDefault {
 fn sedona_type_to_formatted_type(sedona_type: &SedonaType) -> Result<SedonaType> {
     match sedona_type {
         SedonaType::Wkb(_, _) | SedonaType::WkbView(_, _) => Ok(SedonaType::Arrow(DataType::Utf8)),
+        SedonaType::Raster(_) => Ok(SedonaType::Arrow(DataType::Utf8)),
         SedonaType::Arrow(arrow_type) => {
             // dive into the arrow type and translate geospatial types into Utf8
             match arrow_type {
@@ -164,6 +165,9 @@ fn columnar_value_to_formatted_value(
 ) -> Result<ColumnarValue> {
     match sedona_type {
         SedonaType::Wkb(_, _) | SedonaType::WkbView(_, _) => {
+            geospatial_value_to_formatted_value(sedona_type, columnar_value, maybe_width_hint)
+        }
+        SedonaType::Raster(_) => {
             geospatial_value_to_formatted_value(sedona_type, columnar_value, maybe_width_hint)
         }
         SedonaType::Arrow(arrow_type) => match arrow_type {

@@ -21,7 +21,7 @@ use arrow_schema::DataType;
 use datafusion_common::{plan_err, Result};
 use sedona_common::sedona_internal_err;
 
-use crate::datatypes::{Edges, SedonaType, WKB_GEOGRAPHY, WKB_GEOMETRY};
+use crate::datatypes::{Edges, SedonaType, WKB_GEOGRAPHY, WKB_GEOMETRY, RASTER};
 
 /// Helper to match arguments and compute return types
 #[derive(Debug)]
@@ -168,6 +168,12 @@ impl ArgMatcher {
     /// Matches any geography argument without considering Crs
     pub fn is_geography() -> Arc<dyn TypeMatcher + Send + Sync> {
         Arc::new(IsGeography {})
+    }
+
+    pub fn is_raster() -> Arc<dyn TypeMatcher + Send + Sync> {
+        Arc::new(IsExact {
+            exact_type: RASTER,
+        })
     }
 
     /// Matches a null argument
@@ -478,6 +484,10 @@ mod tests {
             ArgMatcher::is_boolean().type_if_null(),
             Some(SedonaType::Arrow(DataType::Boolean))
         );
+
+        assert!(ArgMatcher::is_raster().match_type(&RASTER));
+        assert!(!ArgMatcher::is_raster().match_type(&SedonaType::Arrow(DataType::Int32)));
+        assert!(!ArgMatcher::is_raster().match_type(&WKB_GEOMETRY));
     }
 
     #[test]

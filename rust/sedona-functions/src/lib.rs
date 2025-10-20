@@ -21,6 +21,7 @@ mod overlay;
 mod predicates;
 mod referencing;
 pub mod register;
+mod rs_width;
 mod sd_format;
 pub mod st_analyze_aggr;
 mod st_area;
