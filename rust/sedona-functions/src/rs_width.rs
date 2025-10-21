@@ -110,7 +110,7 @@ mod tests {
         let raster_array = create_test_raster_array();
 
         // Create the UDF and invoke it
-        let kernel = RS_Width {};
+        let kernel = RsWidth {};
         let args = vec![ColumnarValue::Array(raster_array)];
         let arg_types = vec![RASTER];
 

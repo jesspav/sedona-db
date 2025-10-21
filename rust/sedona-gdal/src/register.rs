@@ -14,43 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-mod barrier;
-mod distance;
-pub mod executor;
-mod overlay;
-mod predicates;
-mod referencing;
-pub mod register;
-mod rs_value;
-mod rs_width;
-mod sd_format;
-pub mod st_analyze_aggr;
-mod st_area;
-mod st_asbinary;
-mod st_astext;
-mod st_azimuth;
-mod st_buffer;
-mod st_centroid;
-mod st_collect;
-mod st_dimension;
-mod st_dwithin;
-pub mod st_envelope;
-pub mod st_envelope_aggr;
-pub mod st_flipcoordinates;
-mod st_geometrytype;
-mod st_geomfromwkb;
-mod st_geomfromwkt;
-mod st_haszm;
-pub mod st_intersection_aggr;
-pub mod st_isempty;
-mod st_length;
-mod st_makeline;
-mod st_perimeter;
-mod st_point;
-mod st_pointzm;
-mod st_setsrid;
-mod st_srid;
-mod st_transform;
-pub mod st_union_aggr;
-mod st_xyzm;
-mod st_xyzm_minmax;
+use sedona_expr::aggregate_udf::SedonaAccumulatorRef;
+use sedona_expr::scalar_udf::ScalarKernelRef;
+
+use crate::{
+    rs_value::rs_value_impl,
+};
+
+pub fn scalar_kernels() -> Vec<(&'static str, ScalarKernelRef)> {
+    vec![
+        ("rs_value", rs_value_impl()),
+    ]
+}
+
+pub fn aggregate_kernels() -> Vec<(&'static str, SedonaAccumulatorRef)> {
+    vec![
+    ]
+}

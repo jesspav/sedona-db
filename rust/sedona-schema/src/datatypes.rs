@@ -14,21 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-use arrow::buffer::{BooleanBuffer, MutableBuffer, NullBuffer};
+use arrow::buffer::MutableBuffer;
 use arrow_array::{
     builder::{
         BinaryBuilder, Float64Builder, ListBuilder, StringBuilder, StructBuilder, UInt32Builder,
         UInt64Builder,
     },
-    Array, ArrayRef, BinaryArray, Float64Array, ListArray, StringArray, StringViewArray,
-    StructArray, UInt32Array, UInt64Array,
+    Array, BinaryArray, Float64Array, ListArray, StringArray, StructArray, UInt32Array,
+    UInt64Array,
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion_common::error::{DataFusionError, Result};
 use sedona_common::sedona_internal_err;
 use serde_json::Value;
 use std::fmt::{Debug, Display};
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use crate::crs::{deserialize_crs, Crs};
 use crate::extension_type::ExtensionType;
@@ -439,7 +439,7 @@ impl RasterSchema {
 
     /// CRS schema to store json representation
     pub fn crs_type() -> DataType {
-        DataType::Utf8
+        DataType::Utf8 // TODO: Consider Utf8View
     }
 }
 
@@ -519,7 +519,7 @@ impl RasterBuilder {
         ));
 
         // Now create the main builder with pre-built components
-        let mut main_builder = StructBuilder::new(
+        let main_builder = StructBuilder::new(
             RasterSchema::fields(),
             vec![
                 Box::new(metadata_builder),
