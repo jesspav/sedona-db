@@ -27,9 +27,11 @@ members = [
     "rust/sedona-adbc",
     "rust/sedona-expr",
     "rust/sedona-functions",
+    "rust/sedona-gdal",
     "rust/sedona-geo",
     "rust/sedona-geometry",
     "rust/sedona-geoparquet",
+    "rust/sedona-raster",
     "rust/sedona-schema",
     "rust/sedona-spatial-join",
     "rust/sedona-testing",
@@ -89,6 +91,9 @@ num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 mimalloc = { version = "0.1", default-features = false }
 libmimalloc-sys = { version = "0.1", default-features = false }
 once_cell = "1.20"
+
+gdal = { version = "0.17", features = ["bindgen"] }
+gdal-sys = { version = "0.10", features = ["bindgen"] }
 
 geos = { version = "10.0.0", features = ["geo", "v3_10_0"] }
 

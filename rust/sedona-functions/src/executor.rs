@@ -23,7 +23,7 @@ use datafusion_common::error::Result;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::ColumnarValue;
 use sedona_common::sedona_internal_err;
-use sedona_schema::datatypes::{SedonaType, raster_iterator, RasterRefImpl};
+use sedona_schema::datatypes::{raster_iterator, RasterRefImpl, SedonaType};
 use wkb::reader::Wkb;
 
 /// Helper for writing general kernel implementations with geometry
@@ -116,7 +116,7 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
             ColumnarValue::Array(array) => array,
             ColumnarValue::Scalar(_) => {
                 return Err(DataFusionError::NotImplemented(
-                    "Scalar raster input not yet supported".to_string()
+                    "Scalar raster input not yet supported".to_string(),
                 ));
             }
         };
@@ -125,9 +125,9 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
         let raster_struct = raster_array
             .as_any()
             .downcast_ref::<StructArray>()
-            .ok_or_else(|| DataFusionError::Internal(
-                "Expected StructArray for raster data".to_string()
-            ))?;
+            .ok_or_else(|| {
+                DataFusionError::Internal("Expected StructArray for raster data".to_string())
+            })?;
 
         // Create raster iterator
         let iterator = raster_iterator(raster_struct);
@@ -139,9 +139,7 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
             } else {
                 // Get the raster at this index
                 let raster = iterator.get(i).ok_or_else(|| {
-                    DataFusionError::Internal(
-                        format!("Failed to get raster at index {}", i)
-                    )
+                    DataFusionError::Internal(format!("Failed to get raster at index {}", i))
                 })?;
                 func(i, Some(raster))?;
             }

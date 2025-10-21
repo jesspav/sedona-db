@@ -29,8 +29,25 @@ use sedona_schema::{datatypes::SedonaType, matchers::ArgMatcher};
 
 /// RS_Value() scalar UDF implementation
 ///
-/// Extract the value at a given point from the raster
-/// TODO: Implement support for point geometry input
+/// Extracts the pixel value at a specified location from a raster band.
+///
+/// This function samples a raster at the given column and row coordinates (colX, colY)
+/// within the specified band. The coordinates are 0-based pixel indices where:
+/// - colX: column index (0 to raster width - 1)
+/// - colY: row index (0 to raster height - 1)  
+/// - band: band number (1-based index, where 1 is the first band)
+///
+/// Returns Float64 to provide a unified return type that can represent values from
+/// different raster data types (UInt8, UInt16, Float32, etc.). Returns null if:
+/// - The input raster is null
+///
+/// Throws an exception if:
+/// - The coordinates are outside the raster bounds
+/// - The specified band does not exist
+///
+/// TODO: should we return null if the pixel value is nodata?
+///
+/// Future versions may support point geometry input for coordinate specification.
 pub fn rs_value_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new_stub(
         "rs_value",
@@ -41,12 +58,13 @@ pub fn rs_value_udf() -> SedonaScalarUDF {
                 ArgMatcher::is_numeric(),
                 ArgMatcher::is_numeric(),
             ],
-            SedonaType::Arrow(DataType::Boolean),
+            SedonaType::Arrow(DataType::Float64),
         ),
         Volatility::Immutable,
         Some(rs_value_doc()),
     )
 }
+
 fn rs_value_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
@@ -56,15 +74,11 @@ fn rs_value_doc() -> Documentation {
         format!("RS_Value (raster: Raster, colX: Integer, colY: Integer, band: Integer)"),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_optional_argument("x", "Integer: X coordinate")
-    .with_optional_argument("y", "Integer: Y coordinate")
-    .with_optional_argument("point", "Point: Point geometry")
+    .with_optional_argument("x", "coordinate")
+    .with_optional_argument("y", "Y coordinate")
     .with_argument("band_id", "Integer: Band number (1-based index)")
     .with_sql_example(format!(
         "SELECT RS_Value(raster, x, y, band_id)",
-    ))
-    .with_sql_example(format!(
-        "SELECT RS_Value(raster, point, band_id)",
     ))
     .build()
 }

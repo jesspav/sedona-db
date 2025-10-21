@@ -25,8 +25,8 @@ use datafusion_expr::{
 };
 use sedona_expr::scalar_udf::{SedonaScalarKernel, SedonaScalarUDF};
 use sedona_schema::{
-    datatypes::{RasterRef, SedonaType}, 
-    matchers::ArgMatcher
+    datatypes::{RasterRef, SedonaType},
+    matchers::ArgMatcher,
 };
 
 /// RS_Width() scalar UDF implementation
@@ -44,15 +44,11 @@ pub fn rs_width_udf() -> SedonaScalarUDF {
 fn rs_width_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
-        format!(
-            "Return the width component of a raster",
-        ),
+        format!("Return the width component of a raster",),
         format!("RS_Width(raster: Raster)"),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example(format!(
-        "SELECT RS_Width(raster)",
-    ))
+    .with_sql_example(format!("SELECT RS_Width(raster)",))
     .build()
 }
 
@@ -112,18 +108,18 @@ mod tests {
     fn udf_invoke() {
         // Create test rasters with different widths
         let raster_array = create_test_raster_array();
-        
+
         // Create the UDF and invoke it
         let kernel = RS_Width {};
         let args = vec![ColumnarValue::Array(raster_array)];
         let arg_types = vec![RASTER];
-        
+
         let result = kernel.invoke_batch(&arg_types, &args).unwrap();
-        
+
         // Check the result
         if let ColumnarValue::Array(result_array) = result {
             let width_array = result_array.as_any().downcast_ref::<UInt64Array>().unwrap();
-            
+
             assert_eq!(width_array.len(), 3);
             assert_eq!(width_array.value(0), 10); // First raster width
             assert!(width_array.is_null(1)); // Second raster is null
@@ -134,9 +130,11 @@ mod tests {
     }
 
     /// Create a test raster array with different widths for testing
+    // TODO: Parameterize the creation of rasters and move the
+    //       function to sedona-testing
     fn create_test_raster_array() -> ArrayRef {
-        let mut builder = RasterBuilder::new(10);
-        
+        let mut builder = RasterBuilder::new(3);
+
         // First raster: 10x12
         let metadata1 = RasterMetadata {
             width: 10,

@@ -1,0 +1,28 @@
+[package]
+name = "sedona-gdal"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description.workspace = true
+readme.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints.clippy]
+result_large_err = "allow"
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[dependencies]
+arrow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-expr = { workspace = true }
+gdal = {workspace = true}
+gdal-sys = {workspace = true}
+sedona-expr = { path = "../sedona-expr" }
+sedona-functions = { path = "../sedona-functions" }
+sedona-raster = { path = "../sedona-raster" }
+sedona-schema = { path = "../sedona-schema" }
