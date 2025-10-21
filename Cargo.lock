@@ -4980,10 +4980,17 @@ name = "sedona-gdal"
 version = "0.2.0"
 dependencies = [
  "arrow",
+ "arrow-array",
+ "arrow-schema",
+ "datafusion-common",
+ "datafusion-expr",
  "gdal",
  "gdal-sys",
  "rstest",
+ "sedona-expr",
+ "sedona-functions",
  "sedona-raster",
+ "sedona-schema",
 ]
 
 [[package]]
