@@ -22,8 +22,8 @@ use datafusion_common::{error::Result, scalar::ScalarValue};
 use datafusion_expr::ColumnarValue;
 use sedona_expr::scalar_udf::{ScalarKernelRef, SedonaScalarKernel};
 use sedona_functions::executor::RasterExecutor;
-use sedona_schema::datatypes::{BandMetadataRef, BandRef, RasterRef, SedonaType};
 use sedona_raster::datatype_functions::{bytes_per_pixel, read_pixel_value};
+use sedona_schema::datatypes::{BandMetadataRef, BandRef, RasterRef, SedonaType};
 
 /// RS_Value() implementation using [DistanceExt]
 pub fn rs_value_impl() -> ScalarKernelRef {
@@ -34,7 +34,10 @@ pub fn rs_value_impl() -> ScalarKernelRef {
 struct RSValue {}
 
 impl SedonaScalarKernel for RSValue {
-    fn return_type(&self, _arg_types: &[SedonaType]) -> Result<Option<SedonaType>, datafusion_common::DataFusionError> {
+    fn return_type(
+        &self,
+        _arg_types: &[SedonaType],
+    ) -> Result<Option<SedonaType>, datafusion_common::DataFusionError> {
         Ok(Some(SedonaType::Arrow(DataType::Float64)))
     }
 
@@ -48,33 +51,72 @@ impl SedonaScalarKernel for RSValue {
         // Extract coordinate and band arguments as scalars
         let x = match &args[1] {
             ColumnarValue::Scalar(scalar) => {
-                let val = scalar.cast_to(&DataType::Int64).map_err(|e| datafusion_common::DataFusionError::Execution(format!("Failed to cast x coordinate: {}", e)))?;
+                let val = scalar.cast_to(&DataType::Int64).map_err(|e| {
+                    datafusion_common::DataFusionError::Execution(format!(
+                        "Failed to cast x coordinate: {}",
+                        e
+                    ))
+                })?;
                 match val {
                     ScalarValue::Int64(Some(v)) => v as usize,
-                    _ => return Err(datafusion_common::DataFusionError::NotImplemented("Invalid x coordinate".to_string())),
+                    _ => {
+                        return Err(datafusion_common::DataFusionError::NotImplemented(
+                            "Invalid x coordinate".to_string(),
+                        ))
+                    }
                 }
-            },
-            _ => return Err(datafusion_common::DataFusionError::NotImplemented("Array x coordinates not supported".to_string())),
+            }
+            _ => {
+                return Err(datafusion_common::DataFusionError::NotImplemented(
+                    "Array x coordinates not supported".to_string(),
+                ))
+            }
         };
         let y = match &args[2] {
             ColumnarValue::Scalar(scalar) => {
-                let val = scalar.cast_to(&DataType::Int64).map_err(|e| datafusion_common::DataFusionError::Execution(format!("Failed to cast y coordinate: {}", e)))?;
+                let val = scalar.cast_to(&DataType::Int64).map_err(|e| {
+                    datafusion_common::DataFusionError::Execution(format!(
+                        "Failed to cast y coordinate: {}",
+                        e
+                    ))
+                })?;
                 match val {
                     ScalarValue::Int64(Some(v)) => v as usize,
-                    _ => return Err(datafusion_common::DataFusionError::NotImplemented("Invalid y coordinate".to_string())),
+                    _ => {
+                        return Err(datafusion_common::DataFusionError::NotImplemented(
+                            "Invalid y coordinate".to_string(),
+                        ))
+                    }
                 }
-            },
-            _ => return Err(datafusion_common::DataFusionError::NotImplemented("Array y coordinates not supported".to_string())),
+            }
+            _ => {
+                return Err(datafusion_common::DataFusionError::NotImplemented(
+                    "Array y coordinates not supported".to_string(),
+                ))
+            }
         };
         let band_index = match &args[3] {
             ColumnarValue::Scalar(scalar) => {
-                let val = scalar.cast_to(&DataType::Int64).map_err(|e| datafusion_common::DataFusionError::Execution(format!("Failed to cast band index: {}", e)))?;
+                let val = scalar.cast_to(&DataType::Int64).map_err(|e| {
+                    datafusion_common::DataFusionError::Execution(format!(
+                        "Failed to cast band index: {}",
+                        e
+                    ))
+                })?;
                 match val {
                     ScalarValue::Int64(Some(v)) => (v as usize).saturating_sub(1),
-                    _ => return Err(datafusion_common::DataFusionError::NotImplemented("Invalid band index".to_string())),
+                    _ => {
+                        return Err(datafusion_common::DataFusionError::NotImplemented(
+                            "Invalid band index".to_string(),
+                        ))
+                    }
                 }
-            },
-            _ => return Err(datafusion_common::DataFusionError::NotImplemented("Array band numbers not supported".to_string())),
+            }
+            _ => {
+                return Err(datafusion_common::DataFusionError::NotImplemented(
+                    "Array band numbers not supported".to_string(),
+                ))
+            }
         };
 
         let mut builder = Float64Builder::with_capacity(executor.num_iterations());
@@ -96,19 +138,24 @@ impl SedonaScalarKernel for RSValue {
     }
 }
 
-fn invoke_scalar(raster: &dyn RasterRef, x: usize, y: usize, band_index: usize) -> Result<f64, ArrowError> {
+fn invoke_scalar(
+    raster: &dyn RasterRef,
+    x: usize,
+    y: usize,
+    band_index: usize,
+) -> Result<f64, ArrowError> {
     // Extract metadata from the raster
     let metadata = raster.metadata();
     let width = metadata.width() as usize;
     let height = metadata.height() as usize;
-    
+
     // Check that x,y are within width/height
     if x >= width || y >= height {
         return Err(ArrowError::InvalidArgumentError(
             "Coordinates are outside raster bounds".to_string(),
         ));
     }
-    
+
     // Get the band
     let bands = raster.bands();
     if band_index >= bands.len() {
@@ -116,18 +163,29 @@ fn invoke_scalar(raster: &dyn RasterRef, x: usize, y: usize, band_index: usize) 
             "Specified band does not exist".to_string(),
         ));
     }
-    let band = bands.band(band_index).ok_or_else(|| ArrowError::InvalidArgumentError(
-        "Failed to get band at index".to_string(),
-    ))?; 
+    let band = bands.band(band_index).ok_or_else(|| {
+        ArrowError::InvalidArgumentError("Failed to get band at index".to_string())
+    })?;
     let band_metadata = band.metadata();
 
     match band_metadata.storage_type() {
-        sedona_schema::datatypes::StorageType::InDb => get_indb_pixel(band_metadata, &*band, x, y, width, height),
-        sedona_schema::datatypes::StorageType::OutDbRef => get_outdb_pixel(band_metadata, x, y, width, height),
+        sedona_schema::datatypes::StorageType::InDb => {
+            get_indb_pixel(band_metadata, &*band, x, y, width, height)
+        }
+        sedona_schema::datatypes::StorageType::OutDbRef => {
+            get_outdb_pixel(band_metadata, x, y, width, height)
+        }
     }
 }
 
-fn get_indb_pixel(metadata: &dyn BandMetadataRef, band: &dyn BandRef, x: usize, y: usize, width: usize, _height: usize) -> Result<f64, ArrowError> {
+fn get_indb_pixel(
+    metadata: &dyn BandMetadataRef,
+    band: &dyn BandRef,
+    x: usize,
+    y: usize,
+    width: usize,
+    _height: usize,
+) -> Result<f64, ArrowError> {
     if let Some(_nodata_bytes) = metadata.nodata_value() {
         // TODO: Compare pixel value against nodata value
     }
@@ -135,21 +193,27 @@ fn get_indb_pixel(metadata: &dyn BandMetadataRef, band: &dyn BandRef, x: usize, 
     let data_type = metadata.data_type();
     let bytes_per_px = bytes_per_pixel(data_type.clone())?;
     let offset = (y * width + x) * bytes_per_px;
-    
+
     let band_data = band.data();
     if offset + bytes_per_px > band_data.len() {
         return Err(ArrowError::InvalidArgumentError(
             "Pixel offset exceeds band data length".to_string(),
         ));
     }
-    
+
     let pixel_bytes = &band_data[offset..offset + bytes_per_px];
     read_pixel_value(pixel_bytes, data_type)
 }
 
-fn get_outdb_pixel(metadata: &dyn BandMetadataRef, x: usize, y: usize, _width: usize, _height: usize) -> Result<f64, ArrowError> {
+fn get_outdb_pixel(
+    metadata: &dyn BandMetadataRef,
+    x: usize,
+    y: usize,
+    _width: usize,
+    _height: usize,
+) -> Result<f64, ArrowError> {
     use crate::dataset::get_outdb_dataset;
-    
+
     let dataset = get_outdb_dataset(metadata)?;
 
     let band_index = match metadata.outdb_band_id() {
@@ -160,15 +224,16 @@ fn get_outdb_pixel(metadata: &dyn BandMetadataRef, x: usize, y: usize, _width: u
             ))
         }
     };
-    
+
     let band = dataset.rasterband(band_index as usize).map_err(|_| {
         ArrowError::ParseError("Failed to get raster band from dataset".to_string())
     })?;
-    
+
     // Read a single pixel at the specified coordinates
-    let pixel_data = band.read_as::<f64>((x as isize, y as isize), (1, 1), (1, 1), None)
+    let pixel_data = band
+        .read_as::<f64>((x as isize, y as isize), (1, 1), (1, 1), None)
         .map_err(|_| ArrowError::ParseError("Failed to read pixel data from GDAL".to_string()))?;
-    
+
     Ok(pixel_data.data()[0])
 }
 
@@ -176,10 +241,49 @@ fn get_outdb_pixel(metadata: &dyn BandMetadataRef, x: usize, y: usize, _width: u
 mod tests {
     use super::*;
     use arrow_array::{Array, ArrayRef, Float64Array};
-    use sedona_schema::datatypes::{BandDataType, BandMetadata, RasterBuilder, RasterMetadata, StorageType, RASTER};
+    use sedona_schema::datatypes::{
+        BandDataType, BandMetadata, RasterBuilder, RasterMetadata, StorageType, RASTER,
+    };
 
     #[test]
-    fn udf_invoke() {
+    fn udf_invoke_outdb() {
+        let raster_array = create_outdb_test_raster_array();
+        let kernel = RSValue {};
+        // Get pixel at (2,3) in band 1
+        let args = vec![
+            ColumnarValue::Array(raster_array),
+            ColumnarValue::Scalar(ScalarValue::from(2i64)),
+            ColumnarValue::Scalar(ScalarValue::from(3i64)),
+            ColumnarValue::Scalar(ScalarValue::from(1i64)),
+        ];
+        let arg_types = vec![
+            RASTER,
+            sedona_schema::datatypes::SedonaType::Arrow(DataType::Int64),
+            sedona_schema::datatypes::SedonaType::Arrow(DataType::Int64),
+            sedona_schema::datatypes::SedonaType::Arrow(DataType::Int64),
+        ];
+
+        let result = kernel.invoke_batch(&arg_types, &args).unwrap();
+
+        // Check the result
+        if let ColumnarValue::Array(result_array) = result {
+            let pixel_array = result_array
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+
+            assert_eq!(pixel_array.len(), 1);
+
+            // Expected pixel value at (2,3) for 10x12 raster: row 3 * width 10 + col 2 = 32
+            let expected_first = 201.0;
+            assert_eq!(pixel_array.value(0), expected_first,);
+        } else {
+            panic!("Expected array result for outdb");
+        }
+    }
+
+    #[test]
+    fn udf_invoke_indb_all_band_types() {
         // Test with different band data types
         let band_types = vec![
             BandDataType::UInt8,
@@ -192,19 +296,15 @@ mod tests {
         ];
 
         for band_data_type in band_types {
-            println!("Testing with band data type: {:?}", band_data_type);
-            
-            // Create test rasters with the current band data type
             let raster_array = create_indb_test_raster_array(band_data_type.clone());
 
-            // Create the UDF and invoke it
             let kernel = RSValue {};
-            /// Get pixel at (2,3) in band 1
+            // Get pixel at (2,3) in band 1
             let args = vec![
                 ColumnarValue::Array(raster_array),
                 ColumnarValue::Scalar(ScalarValue::from(2i64)),
                 ColumnarValue::Scalar(ScalarValue::from(3i64)),
-                ColumnarValue::Scalar(ScalarValue::from(1i64))
+                ColumnarValue::Scalar(ScalarValue::from(1i64)),
             ];
             let arg_types = vec![
                 RASTER,
@@ -217,18 +317,35 @@ mod tests {
 
             // Check the result
             if let ColumnarValue::Array(result_array) = result {
-                let pixel_array = result_array.as_any().downcast_ref::<Float64Array>().unwrap();
+                let pixel_array = result_array
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
 
                 assert_eq!(pixel_array.len(), 3);
-                
+
                 // Expected pixel value at (2,3) for 10x12 raster: row 3 * width 10 + col 2 = 32
                 let expected_first = 32.0;
-                assert_eq!(pixel_array.value(0), expected_first, "Failed for band type {:?}", band_data_type);
-                assert!(pixel_array.is_null(1), "Second raster should be null for band type {:?}", band_data_type);
-                
-                // Expected pixel value at (2,3) for 30x15 raster: row 3 * width 30 + col 2 = 92  
+                assert_eq!(
+                    pixel_array.value(0),
+                    expected_first,
+                    "Failed for band type {:?}",
+                    band_data_type
+                );
+                assert!(
+                    pixel_array.is_null(1),
+                    "Second raster should be null for band type {:?}",
+                    band_data_type
+                );
+
+                // Expected pixel value at (2,3) for 30x15 raster: row 3 * width 30 + col 2 = 92
                 let expected_third = 92.0;
-                assert_eq!(pixel_array.value(2), expected_third, "Failed for band type {:?}", band_data_type);
+                assert_eq!(
+                    pixel_array.value(2),
+                    expected_third,
+                    "Failed for band type {:?}",
+                    band_data_type
+                );
             } else {
                 panic!("Expected array result for band type {:?}", band_data_type);
             }
@@ -303,7 +420,7 @@ mod tests {
         for i in 0..num_pixels {
             match band_data_type {
                 BandDataType::UInt8 => {
-                    data.push(i  as u8);
+                    data.push(i as u8);
                 }
                 BandDataType::Int16 => {
                     let bytes = (i as i16).to_le_bytes();
@@ -335,4 +452,39 @@ mod tests {
         data
     }
 
+    fn create_outdb_test_raster_array() -> ArrayRef {
+        // TODO: Unit tests should not query external resources.
+        //       This function is for proof-of-concept purposes only.
+        let url = "https://sentinel-cogs.s3.amazonaws.com/sentinel-s2-l2a-cogs/1/C/CV/2018/10/S2B_1CCV_20181004_0_L2A/AOT.tif";
+        let mut builder = RasterBuilder::new(3);
+
+        // First raster: 10x12
+        let metadata1 = RasterMetadata {
+            width: 10,
+            height: 12,
+            upperleft_x: 0.0,
+            upperleft_y: 0.0,
+            scale_x: 1.0,
+            scale_y: -1.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            bounding_box: None,
+        };
+
+        let band_metadata = BandMetadata {
+            nodata_value: Some(vec![255u8]),
+            storage_type: StorageType::OutDbRef,
+            datatype: BandDataType::UInt16,
+            outdb_url: Some(url.to_string()),
+            outdb_band_id: Some(1),
+        };
+
+        builder.start_raster(&metadata1, None, None).unwrap();
+        let test_data1 = vec![0u8];
+        builder.band_data_writer().append_value(&test_data1);
+        builder.finish_band(band_metadata.clone()).unwrap();
+        builder.finish_raster().unwrap();
+
+        Arc::new(builder.finish().unwrap())
+    }
 }

@@ -14,14 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-use arrow::buffer::{MutableBuffer, BooleanBuffer, NullBuffer};
+use arrow::buffer::{BooleanBuffer, MutableBuffer, NullBuffer};
 use arrow_array::{
     builder::{
-        BinaryBuilder, Float64Builder, ListBuilder, StringBuilder, StructBuilder,
-        UInt32Builder, UInt64Builder,
+        BinaryBuilder, Float64Builder, ListBuilder, StringBuilder, StructBuilder, UInt32Builder,
+        UInt64Builder,
     },
-    Array, ArrayRef, BinaryArray, Float64Array, ListArray, StringArray, StringViewArray, StructArray,
-    UInt32Array, UInt64Array,
+    Array, ArrayRef, BinaryArray, Float64Array, ListArray, StringArray, StringViewArray,
+    StructArray, UInt32Array, UInt64Array,
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion_common::error::{DataFusionError, Result};
@@ -523,15 +523,13 @@ impl RasterBuilder {
             RasterSchema::fields(),
             vec![
                 Box::new(metadata_builder),
-                Box::new(crs_builder), 
+                Box::new(crs_builder),
                 Box::new(bbox_builder),
                 Box::new(bands_builder),
             ],
         );
 
-        Self {
-            main_builder,
-        }
+        Self { main_builder }
     }
 
     /// Start a new raster with metadata, optional CRS, and optional bounding box
@@ -567,12 +565,13 @@ impl RasterBuilder {
 
     /// Get direct access to the BinaryBuilder for writing the current band's data
     pub fn band_data_writer(&mut self) -> &mut BinaryBuilder {
-        let bands_builder = self.main_builder
+        let bands_builder = self
+            .main_builder
             .field_builder::<ListBuilder<StructBuilder>>(raster_indices::BANDS)
             .unwrap();
         let band_builder = bands_builder.values();
         // Ensure we have at least one field (band metadata and data)
-        // Field 0 = metadata (StructBuilder), Field 1 = data (BinaryBuilder) 
+        // Field 0 = metadata (StructBuilder), Field 1 = data (BinaryBuilder)
         band_builder.field_builder::<BinaryBuilder>(1).unwrap()
     }
 
@@ -621,7 +620,8 @@ impl RasterBuilder {
     /// TODO: The band_metadata is in the finish in the band call, but in the
     /// start in the raster call. Make it consistent.
     pub fn finish_band(&mut self, band_metadata: BandMetadata) -> Result<(), ArrowError> {
-        let bands_builder = self.main_builder
+        let bands_builder = self
+            .main_builder
             .field_builder::<ListBuilder<StructBuilder>>(raster_indices::BANDS)
             .unwrap();
         let band_builder = bands_builder.values();
@@ -685,7 +685,8 @@ impl RasterBuilder {
 
     /// Finish all bands for the current raster
     pub fn finish_raster(&mut self) -> Result<(), ArrowError> {
-        let bands_builder = self.main_builder
+        let bands_builder = self
+            .main_builder
             .field_builder::<ListBuilder<StructBuilder>>(raster_indices::BANDS)
             .unwrap();
         bands_builder.append(true);
@@ -696,10 +697,11 @@ impl RasterBuilder {
 
     /// Append raster metadata from a MetadataRef trait object
     fn append_metadata_from_ref(&mut self, metadata: &dyn MetadataRef) -> Result<(), ArrowError> {
-        let metadata_builder = self.main_builder
+        let metadata_builder = self
+            .main_builder
             .field_builder::<StructBuilder>(raster_indices::METADATA)
             .unwrap();
-            
+
         // Width
         metadata_builder
             .field_builder::<UInt64Builder>(metadata_indices::WIDTH)
@@ -750,7 +752,8 @@ impl RasterBuilder {
 
     /// Set the CRS for the current raster
     pub fn set_crs(&mut self, crs: Option<&str>) -> Result<(), ArrowError> {
-        let crs_builder = self.main_builder
+        let crs_builder = self
+            .main_builder
             .field_builder::<StringBuilder>(raster_indices::CRS)
             .unwrap();
         match crs {
@@ -762,10 +765,11 @@ impl RasterBuilder {
 
     /// Append a bounding box to the current raster
     pub fn append_bounding_box(&mut self, bbox: Option<&BoundingBox>) -> Result<(), ArrowError> {
-        let bbox_builder = self.main_builder
+        let bbox_builder = self
+            .main_builder
             .field_builder::<StructBuilder>(raster_indices::BBOX)
             .unwrap();
-            
+
         if let Some(bbox) = bbox {
             bbox_builder
                 .field_builder::<Float64Builder>(bounding_box_indices::MIN_X)
@@ -818,45 +822,46 @@ impl RasterBuilder {
     /// Append a null raster
     pub fn append_null(&mut self) -> Result<(), ArrowError> {
         // Since metadata fields are non-nullable, provide default values
-        let metadata_builder = self.main_builder
+        let metadata_builder = self
+            .main_builder
             .field_builder::<StructBuilder>(raster_indices::METADATA)
             .unwrap();
-            
+
         metadata_builder
             .field_builder::<UInt64Builder>(metadata_indices::WIDTH)
             .unwrap()
             .append_value(0u64);
-        
+
         metadata_builder
             .field_builder::<UInt64Builder>(metadata_indices::HEIGHT)
             .unwrap()
             .append_value(0u64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::UPPERLEFT_X)
             .unwrap()
             .append_value(0.0f64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::UPPERLEFT_Y)
             .unwrap()
             .append_value(0.0f64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::SCALE_X)
             .unwrap()
             .append_value(0.0f64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::SCALE_Y)
             .unwrap()
             .append_value(0.0f64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::SKEW_X)
             .unwrap()
             .append_value(0.0f64);
-        
+
         metadata_builder
             .field_builder::<Float64Builder>(metadata_indices::SKEW_Y)
             .unwrap()
@@ -864,18 +869,20 @@ impl RasterBuilder {
 
         // Mark the metadata struct as valid since it has valid values
         metadata_builder.append(true);
-        
+
         // Append null CRS (now using StringBuilder instead of StringViewBuilder)
-        let crs_builder = self.main_builder
+        let crs_builder = self
+            .main_builder
             .field_builder::<StringBuilder>(raster_indices::CRS)
             .unwrap();
         crs_builder.append_null();
-        
+
         // Append null bounding box
         self.append_bounding_box(None)?;
-        
+
         // Append null bands
-        let bands_builder = self.main_builder
+        let bands_builder = self
+            .main_builder
             .field_builder::<ListBuilder<StructBuilder>>(raster_indices::BANDS)
             .unwrap();
         bands_builder.append(false);

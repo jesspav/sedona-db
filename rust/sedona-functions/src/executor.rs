@@ -23,7 +23,7 @@ use datafusion_common::error::Result;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::ColumnarValue;
 use sedona_common::sedona_internal_err;
-use sedona_schema::datatypes::{raster_iterator, RasterRefImpl, SedonaType};
+use sedona_schema::datatypes::{raster_iterator, SedonaType};
 use wkb::reader::Wkb;
 
 /// Helper for writing general kernel implementations with geometry

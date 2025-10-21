@@ -35,7 +35,7 @@ use sedona_schema::{
 pub fn rs_width_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_width",
-        vec![Arc::new(RS_Width {})],
+        vec![Arc::new(RsWidth {})],
         Volatility::Immutable,
         Some(rs_width_doc()),
     )
@@ -53,9 +53,9 @@ fn rs_width_doc() -> Documentation {
 }
 
 #[derive(Debug)]
-struct RS_Width {}
+struct RsWidth {}
 
-impl SedonaScalarKernel for RS_Width {
+impl SedonaScalarKernel for RsWidth {
     fn return_type(&self, args: &[SedonaType]) -> Result<Option<SedonaType>> {
         let matcher = ArgMatcher::new(
             vec![ArgMatcher::is_raster()],

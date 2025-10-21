@@ -1,5 +1,5 @@
 use arrow_schema::ArrowError;
-use gdal::{Dataset};
+use gdal::Dataset;
 use sedona_schema::datatypes::{BandMetadataRef, StorageType};
 
 /// Get the out-db dataset reference from a raster band.
@@ -18,7 +18,6 @@ pub fn get_outdb_dataset(metadata: &dyn BandMetadataRef) -> Result<Dataset, Arro
             ))
         }
     };
-
 
     // These datasets may appear in multiple rasters and called repeatedly.
     // Adding a caching layer here would improve performance.
