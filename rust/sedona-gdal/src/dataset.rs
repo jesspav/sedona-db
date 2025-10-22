@@ -37,6 +37,8 @@ pub fn get_outdb_dataset(metadata: &dyn BandMetadataRef) -> Result<Dataset, Arro
 
     // These datasets may appear in multiple rasters and called repeatedly.
     // Adding a caching layer here would improve performance.
+    // Could also consider having a pool of these datasets - gdal dataset has a GetRefCount
+    // that may be helpful for keeping track of references.
     open_outdb_band(&url)
 }
 

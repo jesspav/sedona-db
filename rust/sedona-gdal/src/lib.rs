@@ -16,4 +16,5 @@
 // under the License.
 
 mod dataset;
+pub mod loaders;
 pub mod rs_value;
