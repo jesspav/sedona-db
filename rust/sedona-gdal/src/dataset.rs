@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 use arrow_schema::ArrowError;
-use gdal::Dataset;
+use gdal::{Dataset, Metadata};
 use sedona_schema::datatypes::{BandMetadataRef, StorageType};
 
 /// Get the out-db dataset reference from a raster band.
-pub fn get_outdb_dataset(metadata: &dyn BandMetadataRef) -> Result<Dataset, ArrowError> {
+pub fn outdb_dataset(metadata: &dyn BandMetadataRef) -> Result<Dataset, ArrowError> {
     if metadata.storage_type() != StorageType::OutDbRef {
         return Err(ArrowError::ParseError(
             "Raster band is not stored out-of-db".to_string(),
@@ -47,3 +47,42 @@ fn open_outdb_band(url: &str) -> Result<Dataset, ArrowError> {
     let ds = Dataset::open(full_url).map_err(|e| ArrowError::ParseError(e.to_string()))?;
     Ok(ds)
 }
+
+/// Extract geotransform components from a GDAL dataset
+/// Returns (upper_left_x, pixel_width, x_skew, upper_left_y, y_skew, pixel_height)
+pub fn geotransform_components(
+    dataset: &Dataset,
+) -> Result<(f64, f64, f64, f64, f64, f64), ArrowError> {
+    let geotransform = dataset
+        .geo_transform()
+        .map_err(|e| ArrowError::ParseError(format!("Failed to get geotransform: {e}")))?;
+    Ok((
+        geotransform[0], // Upper-left X coordinate
+        geotransform[3], // Upper-left Y coordinate
+        geotransform[1], // Pixel width (scale_x)
+        geotransform[5], // Pixel height (scale_y, usually negative)
+        geotransform[2], // X-direction skew
+        geotransform[4], // Y-direction skew
+    ))
+}
+
+/// Extract tile size from a GDAL dataset
+/// If not provided, defaults to raster size
+pub fn tile_size(dataset: &Dataset) -> Result<(usize, usize), ArrowError> {
+    let raster_width = dataset.raster_size().0;
+    let raster_height = dataset.raster_size().1;
+
+    let tile_width = match dataset.metadata_item("TILEWIDTH", "") {
+        Some(val) => val.parse::<usize>().unwrap_or(raster_width),
+        None => raster_width,
+    };
+    let tile_height = match dataset.metadata_item("TILEHEIGHT", "") {
+        Some(val) => val.parse::<usize>().unwrap_or(raster_height),
+        None => raster_height,
+    };
+
+    Ok((tile_width, tile_height))
+}
+
+#[cfg(test)]
+mod test {}

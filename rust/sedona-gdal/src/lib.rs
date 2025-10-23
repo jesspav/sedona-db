@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-mod dataset;
-pub mod loaders;
+pub mod dataset;
+pub mod readers;
 pub mod rs_value;

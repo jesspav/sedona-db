@@ -1010,8 +1010,9 @@ pub trait BandsRef {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// Get a specific band by index (returns None if out of bounds)
-    fn band(&self, index: usize) -> Option<Box<dyn BandRef + '_>>;
+    /// Get a specific band by number (returns None if out of bounds)
+    /// By convention, band numbers are 1-based
+    fn band(&self, number: usize) -> Option<Box<dyn BandRef + '_>>;
     /// Iterator over all bands
     fn iter(&self) -> BandIterator<'_>;
 }
@@ -1229,11 +1230,15 @@ impl<'a> BandsRef for BandsRefImpl<'a> {
         end - start
     }
 
-    /// Get a specific band by index
-    /// IMPORTANT: This function is utilizing zero based band indexing.
-    ///            We may want to consider one-based indexing to match
-    ///            raster standard band conventions.
-    fn band(&self, index: usize) -> Option<Box<dyn BandRef + '_>> {
+    /// Get a specific band by number (1-based index)
+    fn band(&self, number: usize) -> Option<Box<dyn BandRef + '_>> {
+        // TODO: Error instead of returning None for out-of-bounds
+        if number == 0 {
+            return None; // Band numbers are 1-based
+        }
+        // By convention, band numbers are 1-based.
+        // Convert to zero-based index.
+        let index = number - 1;
         if index >= self.len() {
             return None;
         }
@@ -1275,7 +1280,7 @@ impl<'a> BandsRef for BandsRefImpl<'a> {
     fn iter(&self) -> BandIterator<'_> {
         BandIterator {
             bands: self,
-            current: 0,
+            current: 1, // Start at 1 for 1-based band numbering
         }
     }
 }
@@ -1290,7 +1295,8 @@ impl<'a> Iterator for BandIterator<'a> {
     type Item = Box<dyn BandRef + 'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current < self.bands.len() {
+        // current is 1-based, compare against len() + 1
+        if self.current <= self.bands.len() {
             let band = self.bands.band(self.current);
             self.current += 1;
             band
@@ -1300,7 +1306,8 @@ impl<'a> Iterator for BandIterator<'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.bands.len().saturating_sub(self.current);
+        // current is 1-based, so remaining calculation needs adjustment
+        let remaining = self.bands.len().saturating_sub(self.current - 1);
         (remaining, Some(remaining))
     }
 }
@@ -1873,7 +1880,8 @@ mod tests {
         assert_eq!(bands.len(), 1);
         assert!(!bands.is_empty());
 
-        let band = bands.band(0).unwrap();
+        // Access band with 1-based band_number
+        let band = bands.band(1).unwrap();
         assert_eq!(band.data().len(), 100);
         assert_eq!(band.data()[0], 1u8);
 
@@ -1934,8 +1942,10 @@ mod tests {
         assert_eq!(bands.len(), 3);
 
         // Test each band has different data
+        // Use 1-based band numbers
         for i in 0..3 {
-            let band = bands.band(i).unwrap();
+            // Access band with 1-based band_number
+            let band = bands.band(i + 1).unwrap();
             let expected_value = i as u8;
             assert!(band.data().iter().all(|&x| x == expected_value));
         }
@@ -2050,7 +2060,7 @@ mod tests {
         assert_eq!(target_bbox.max_x, -120.0);
 
         // But band data and metadata should be different
-        let target_band = target_raster.bands().band(0).unwrap();
+        let target_band = target_raster.bands().band(1).unwrap();
         let target_band_meta = target_band.metadata();
         assert_eq!(target_band_meta.data_type(), BandDataType::UInt16);
         assert!(target_band_meta.nodata_value().is_none());
@@ -2104,7 +2114,8 @@ mod tests {
         assert_eq!(raster_2.metadata().height(), 3);
         assert_eq!(raster_2.metadata().upper_left_x(), 2.0);
 
-        let band = raster_2.bands().band(0).unwrap();
+        // Access band data with 1-based band_number
+        let band = raster_2.bands().band(1).unwrap();
         assert_eq!(band.data().len(), 9);
         assert!(band.data().iter().all(|&x| x == 2u8));
 
@@ -2373,8 +2384,10 @@ mod tests {
             BandDataType::Float64,
         ];
 
+        // i is zero-based index
         for (i, expected_type) in expected_types.iter().enumerate() {
-            let band = bands.band(i).unwrap();
+            // Bands are 1-based band_number
+            let band = bands.band(i + 1).unwrap();
             let band_metadata = band.metadata();
             let actual_type = band_metadata.data_type();
 
@@ -2442,7 +2455,7 @@ mod tests {
         assert_eq!(bands.len(), 2);
 
         // Test InDb band
-        let indb_band = bands.band(0).unwrap();
+        let indb_band = bands.band(1).unwrap();
         let indb_metadata = indb_band.metadata();
         assert_eq!(indb_metadata.storage_type(), StorageType::InDb);
         assert_eq!(indb_metadata.data_type(), BandDataType::UInt8);
@@ -2451,7 +2464,7 @@ mod tests {
         assert_eq!(indb_band.data().len(), 100);
 
         // Test OutDbRef band
-        let outdb_band = bands.band(1).unwrap();
+        let outdb_band = bands.band(2).unwrap();
         let outdb_metadata = outdb_band.metadata();
         assert_eq!(outdb_metadata.storage_type(), StorageType::OutDbRef);
         assert_eq!(outdb_metadata.data_type(), BandDataType::Float32);

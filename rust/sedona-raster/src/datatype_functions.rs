@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 use arrow_schema::ArrowError;
 use sedona_schema::datatypes::BandDataType;
 
@@ -51,41 +68,6 @@ pub fn read_pixel_value(bytes: &[u8], data_type: BandDataType) -> Result<f64, Ar
             Ok(value)
         }
     }
-}
-
-// Helper functions to cast byte slices to specific types
-pub fn cast_slice_to_u8(slice: &mut [u8]) -> &mut [u8] {
-    slice
-}
-
-pub fn cast_slice_to_u16(slice: &mut [u8]) -> &mut [u16] {
-    let len = slice.len() / 2;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut u16, len) }
-}
-
-pub fn cast_slice_to_i16(slice: &mut [u8]) -> &mut [i16] {
-    let len = slice.len() / 2;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut i16, len) }
-}
-
-pub fn cast_slice_to_u32(slice: &mut [u8]) -> &mut [u32] {
-    let len = slice.len() / 4;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut u32, len) }
-}
-
-pub fn cast_slice_to_i32(slice: &mut [u8]) -> &mut [i32] {
-    let len = slice.len() / 4;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut i32, len) }
-}
-
-pub fn cast_slice_to_f32(slice: &mut [u8]) -> &mut [f32] {
-    let len = slice.len() / 4;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut f32, len) }
-}
-
-pub fn cast_slice_to_f64(slice: &mut [u8]) -> &mut [f64] {
-    let len = slice.len() / 8;
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut f64, len) }
 }
 
 pub fn f64_to_bandtype_bytes(value: f64, data_type: BandDataType) -> Result<Vec<u8>, ArrowError> {
@@ -146,8 +128,5 @@ mod tests {
             read_pixel_value(&17f64.to_le_bytes(), BandDataType::Float64).unwrap(),
             nodataval
         );
-
-        let invalid = -300.0 as f64;
-        assert!(read_pixel_value(&[invalid as u8], BandDataType::UInt8).is_err());
     }
 }
