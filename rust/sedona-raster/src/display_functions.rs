@@ -18,18 +18,19 @@
 use crate::datatype_functions::{bytes_per_pixel, read_pixel_value};
 use arrow::error::ArrowError;
 use sedona_schema::datatypes::{RasterRef, RasterRefImpl, StorageType};
+use std::fmt::Write;
 
-/// Pretty print a raster band to a string with specified precision
-pub fn pretty_print_indb(
+/// Write raster band matrix directly to a StringBuilder with specified precision
+pub fn write_band_to_builder(
     raster: &RasterRefImpl,
     band_number: usize,
-    precision: usize, // TODO: change this to an optional format string
-) -> Result<String, ArrowError> {
+    precision: usize,
+    out: &mut impl Write,
+) -> Result<(), ArrowError> {
     let band = raster.bands().band(band_number).unwrap();
     let metadata = raster.metadata();
     let height = metadata.height() as usize;
     let width = metadata.width() as usize;
-    let mut result = String::new();
 
     let slice = band.data() as &[u8];
     let data_type = band.metadata().data_type();
@@ -39,6 +40,7 @@ pub fn pretty_print_indb(
         ));
     }
     let bytes_per_pixel = bytes_per_pixel(data_type.clone()).unwrap_or(1);
+
     for row in 0..height {
         for col in 0..width {
             let start = (row * width + col) * bytes_per_pixel;
@@ -46,19 +48,23 @@ pub fn pretty_print_indb(
             let pixel_bytes = &slice[start..end];
 
             match read_pixel_value(pixel_bytes, data_type.clone()) {
-                Ok(value) => result.push_str(&format!("{:8.*} ", precision, value)),
-                Err(_) => result.push_str(&format!("{:>8} ", "?")), // Well-spaced question mark
+                Ok(value) => {
+                    out.write_fmt(format_args!("{:8.*} ", precision, value))
+                        .unwrap();
+                }
+                Err(_) => out.write_fmt(format_args!("{:>8} ", "?")).unwrap(),
             }
         }
-        result.push('\n');
+        out.write_fmt(format_args!("\n")).unwrap();
     }
 
-    Ok(result)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::array::StringBuilder;
     use sedona_schema::datatypes::{
         BandDataType, BandMetadata, RasterBuilder, RasterMetadata, StorageType,
     };
@@ -101,9 +107,12 @@ mod tests {
         let raster_struct = raster_builder.finish().unwrap();
         let raster = sedona_schema::datatypes::RasterRefImpl::new(&raster_struct, 0);
 
-        let pretty = pretty_print_indb(&raster, 0, 2).unwrap();
+        let builder = StringBuilder::new();
+        write_band_to_builder(&raster, 1, 2, &mut builder).unwrap();
 
+        let binding = builder.finish();
+        let result = binding.value(0);
         let expected = "    1.10     2.20     3.30 \n    4.40     5.50     6.61 \n";
-        assert_eq!(pretty, expected);
+        assert_eq!(result, expected);
     }
 }

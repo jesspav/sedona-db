@@ -21,6 +21,7 @@ mod overlay;
 mod predicates;
 mod referencing;
 pub mod register;
+mod rs_asmatrix;
 mod rs_value;
 mod rs_width;
 mod sd_format;

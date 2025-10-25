@@ -16,6 +16,7 @@
 // under the License.
 use std::sync::Arc;
 
+use crate::dataset::outdb_dataset;
 use arrow_array::builder::Float64Builder;
 use arrow_schema::{ArrowError, DataType};
 use datafusion_common::{error::Result, scalar::ScalarValue};
@@ -24,7 +25,6 @@ use sedona_expr::scalar_udf::{ScalarKernelRef, SedonaScalarKernel};
 use sedona_functions::executor::RasterExecutor;
 use sedona_raster::datatype_functions::{bytes_per_pixel, read_pixel_value};
 use sedona_schema::datatypes::{BandMetadataRef, BandRef, RasterRef, SedonaType, StorageType};
-use crate::dataset::outdb_dataset;
 
 /// RS_Value() implementation
 pub fn rs_value_impl() -> ScalarKernelRef {
@@ -147,8 +147,6 @@ fn outdb_pixel(
     _width: usize,
     _height: usize,
 ) -> Result<f64, ArrowError> {
-
-
     let dataset = outdb_dataset(metadata)?;
 
     let band_number = match metadata.outdb_band_id() {

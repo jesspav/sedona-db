@@ -14,15 +14,25 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-use sedona_expr::aggregate_udf::SedonaAccumulatorRef;
-use sedona_expr::scalar_udf::ScalarKernelRef;
+use criterion::{criterion_group, criterion_main, Criterion};
+use sedona_expr::function_set::FunctionSet;
+use sedona_testing::benchmark_util::{benchmark, BenchmarkArgSpec::*, BenchmarkArgs};
 
-use crate::rs_value::rs_value_impl;
+fn criterion_benchmark(c: &mut Criterion) {
+    let mut f = FunctionSet::new();
+    for (name, kernel) in sedona_gdal::register::scalar_kernels() {
+        f.add_scalar_udf_kernel(name, kernel).unwrap();
+    }
 
-pub fn scalar_kernels() -> Vec<(&'static str, ScalarKernelRef)> {
-    vec![("rs_value", rs_value_impl())]
+    let args = BenchmarkArgs::ArrayScalarScalarScalar(
+        Raster(128, 128, 1),
+        Int32(0, 127),
+        Int32(0, 127),
+        Int32(1, 2),
+    );
+
+    benchmark::scalar(c, &f, "sedona-gdal", "rs_value", args);
 }
 
-pub fn aggregate_kernels() -> Vec<(&'static str, SedonaAccumulatorRef)> {
-    vec![]
-}
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);

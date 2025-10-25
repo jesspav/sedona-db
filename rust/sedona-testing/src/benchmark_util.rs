@@ -26,7 +26,7 @@ use rand::{distributions::Uniform, rngs::StdRng, Rng, SeedableRng};
 
 use sedona_common::sedona_internal_err;
 use sedona_geometry::types::GeometryTypeId;
-use sedona_schema::datatypes::{SedonaType, WKB_GEOMETRY};
+use sedona_schema::datatypes::{SedonaType, RASTER, WKB_GEOMETRY};
 
 use crate::{
     datagen::RandomPartitionedDataBuilder,
@@ -169,6 +169,13 @@ pub enum BenchmarkArgs {
     ArrayArray(BenchmarkArgSpec, BenchmarkArgSpec),
     /// Invoke a function with an array and two scalar inputs
     ArrayScalarScalar(BenchmarkArgSpec, BenchmarkArgSpec, BenchmarkArgSpec),
+    /// Invoke a function with an array and three scalar inputs
+    ArrayScalarScalarScalar(
+        BenchmarkArgSpec,
+        BenchmarkArgSpec,
+        BenchmarkArgSpec,
+        BenchmarkArgSpec,
+    ),
     /// Invoke a ternary function with two arrays and a scalar
     ArrayArrayScalar(BenchmarkArgSpec, BenchmarkArgSpec, BenchmarkArgSpec),
     /// Invoke a ternary function with three arrays
@@ -204,7 +211,8 @@ impl BenchmarkArgs {
             | BenchmarkArgs::ArrayArrayArrayArray(_, _, _, _) => self.specs(),
             BenchmarkArgs::ScalarArray(_, col)
             | BenchmarkArgs::ArrayScalar(col, _)
-            | BenchmarkArgs::ArrayScalarScalar(col, _, _) => {
+            | BenchmarkArgs::ArrayScalarScalar(col, _, _)
+            | BenchmarkArgs::ArrayScalarScalarScalar(col, _, _, _) => {
                 vec![col.clone()]
             }
         };
@@ -216,6 +224,9 @@ impl BenchmarkArgs {
             }
             BenchmarkArgs::ArrayScalarScalar(_, col0, col1) => {
                 vec![col0.clone(), col1.clone()]
+            }
+            BenchmarkArgs::ArrayScalarScalarScalar(_, col0, col1, col2) => {
+                vec![col0.clone(), col1.clone(), col2.clone()]
             }
             _ => vec![],
         };
@@ -253,7 +264,8 @@ impl BenchmarkArgs {
             | BenchmarkArgs::ArrayArrayArray(col0, col1, col2) => {
                 vec![col0.clone(), col1.clone(), col2.clone()]
             }
-            BenchmarkArgs::ArrayArrayArrayArray(col0, col1, col2, col3) => {
+            BenchmarkArgs::ArrayArrayArrayArray(col0, col1, col2, col3)
+            | BenchmarkArgs::ArrayScalarScalarScalar(col0, col1, col2, col3) => {
                 vec![col0.clone(), col1.clone(), col2.clone(), col3.clone()]
             }
         }
@@ -276,11 +288,16 @@ pub enum BenchmarkArgSpec {
     MultiPoint(usize),
     /// Randomly generated floating point input with a given range of values
     Float64(f64, f64),
+    /// Randomly generated integer input with a given range of values
+    Int32(i32, i32),
     /// A transformation of any of the above based on a [ScalarUDF] accepting
     /// a single argument
     Transformed(Box<BenchmarkArgSpec>, ScalarUDF),
     /// A string that will be a constant
     String(String),
+    /// Randomly generated raster input with a specified width, height and number
+    // of bands.
+    Raster(usize, usize, usize),
 }
 
 // Custom implementation of Debug because otherwise the output of Transformed()
@@ -293,8 +310,15 @@ impl Debug for BenchmarkArgSpec {
             Self::Polygon(arg0) => f.debug_tuple("Polygon").field(arg0).finish(),
             Self::MultiPoint(arg0) => f.debug_tuple("MultiPoint").field(arg0).finish(),
             Self::Float64(arg0, arg1) => f.debug_tuple("Float64").field(arg0).field(arg1).finish(),
+            Self::Int32(arg0, arg1) => f.debug_tuple("Int32").field(arg0).field(arg1).finish(),
             Self::Transformed(inner, t) => write!(f, "{}({:?})", t.name(), inner),
             Self::String(s) => write!(f, "String({s})"),
+            Self::Raster(width, height, bands) => f
+                .debug_tuple("Raster")
+                .field(width)
+                .field(height)
+                .field(bands)
+                .finish(),
         }
     }
 }
@@ -308,11 +332,13 @@ impl BenchmarkArgSpec {
             | BenchmarkArgSpec::LineString(_)
             | BenchmarkArgSpec::MultiPoint(_) => WKB_GEOMETRY,
             BenchmarkArgSpec::Float64(_, _) => SedonaType::Arrow(DataType::Float64),
+            BenchmarkArgSpec::Int32(_, _) => SedonaType::Arrow(DataType::Int32),
             BenchmarkArgSpec::Transformed(inner, t) => {
                 let tester = ScalarUdfTester::new(t.clone(), vec![inner.sedona_type()]);
                 tester.return_type().unwrap()
             }
             BenchmarkArgSpec::String(_) => SedonaType::Arrow(DataType::Utf8),
+            BenchmarkArgSpec::Raster(_, _, _) => RASTER,
         }
     }
 
@@ -374,6 +400,17 @@ impl BenchmarkArgSpec {
                     })
                     .collect()
             }
+            BenchmarkArgSpec::Int32(lo, hi) => {
+                let mut rng = self.rng(i);
+                let dist = Uniform::new(*lo, *hi);
+                (0..num_batches)
+                    .map(|_| -> Result<ArrayRef> {
+                        let int32_array: arrow_array::Int32Array =
+                            (0..rows_per_batch).map(|_| rng.sample(dist)).collect();
+                        Ok(Arc::new(int32_array))
+                    })
+                    .collect()
+            }
             BenchmarkArgSpec::Transformed(inner, t) => {
                 let inner_type = inner.sedona_type();
                 let inner_arrays = inner.build_arrays(i, num_batches, rows_per_batch)?;
@@ -394,6 +431,15 @@ impl BenchmarkArgSpec {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(string_array)
             }
+            BenchmarkArgSpec::Raster(width, height, band_count) => self.build_raster(
+                i,
+                num_batches,
+                rows_per_batch,
+                width,
+                height,
+                band_count,
+                rows_per_batch,
+            ),
         }
     }
 
@@ -424,6 +470,72 @@ impl BenchmarkArgSpec {
             .partition_reader(self.rng(i), 0)
             .map(|batch| -> Result<ArrayRef> { Ok(batch?.column(2).clone()) })
             .collect()
+    }
+
+    fn build_raster(
+        &self,
+        i: usize,
+        num_batches: usize,
+        rows_per_batch: usize,
+        width: &usize,
+        height: &usize,
+        band_count: &usize,
+        _rows_per_raster: usize,
+    ) -> Result<Vec<ArrayRef>> {
+        use rand::distributions::Standard;
+        use sedona_schema::datatypes::{
+            BandDataType, BandMetadata, RasterBuilder, RasterMetadata, StorageType,
+        };
+
+        let mut rng = self.rng(i);
+        let mut batches = Vec::with_capacity(num_batches);
+
+        for _ in 0..num_batches {
+            let mut builder = RasterBuilder::new(rows_per_batch);
+
+            for _ in 0..rows_per_batch {
+                // Keep metadata constant across all rasters
+                let metadata = RasterMetadata {
+                    width: *width as u64,
+                    height: *height as u64,
+                    upperleft_x: 0.0,
+                    upperleft_y: 0.0,
+                    scale_x: 1.0,
+                    scale_y: -1.0,
+                    skew_x: 0.0,
+                    skew_y: 0.0,
+                    bounding_box: None,
+                };
+
+                builder.start_raster(&metadata, None, None)?;
+
+                // Generate random data for each band
+                for _ in 0..*band_count {
+                    let band_metadata = BandMetadata {
+                        nodata_value: None,
+                        storage_type: StorageType::InDb,
+                        datatype: BandDataType::UInt8, // Use UInt8 for simplicity
+                        outdb_url: None,
+                        outdb_band_id: None,
+                    };
+
+                    // Generate random pixel data
+                    let num_pixels = width * height;
+                    let pixel_data: Vec<u8> =
+                        (0..num_pixels).map(|_| rng.sample(Standard)).collect();
+
+                    builder.band_data_writer().append_value(&pixel_data);
+                    builder.finish_band(band_metadata)?;
+                }
+
+                builder.finish_raster()?;
+            }
+
+            let struct_array = builder.finish()?;
+            batches.push(Arc::new(struct_array) as ArrayRef);
+        }
+
+        Ok(batches)
     }
 
     fn rng(&self, i: usize) -> impl Rng {
@@ -485,6 +597,19 @@ impl BenchmarkData {
                         self.arrays[0][i].clone(),
                         scalar0.clone(),
                         scalar1.clone(),
+                    )?;
+                }
+            }
+            BenchmarkArgs::ArrayScalarScalarScalar(_, _, _, _) => {
+                let scalar0 = &self.scalars[0];
+                let scalar1 = &self.scalars[1];
+                let scalar2 = &self.scalars[2];
+                for i in 0..self.num_batches {
+                    tester.invoke_array_scalar_scalar_scalar(
+                        self.arrays[0][i].clone(),
+                        scalar0.clone(),
+                        scalar1.clone(),
+                        scalar2.clone(),
                     )?;
                 }
             }
@@ -702,6 +827,35 @@ mod test {
     }
 
     #[test]
+    fn args_array_scalar_scalar_scalar() {
+        let spec = BenchmarkArgs::ArrayScalarScalarScalar(
+            BenchmarkArgSpec::Point,
+            BenchmarkArgSpec::Float64(1.0, 2.0),
+            BenchmarkArgSpec::String("test".to_string()),
+            BenchmarkArgSpec::Int32(1, 10),
+        );
+        assert_eq!(
+            spec.sedona_types(),
+            [
+                WKB_GEOMETRY,
+                SedonaType::Arrow(DataType::Float64),
+                SedonaType::Arrow(DataType::Utf8),
+                SedonaType::Arrow(DataType::Int32)
+            ]
+        );
+
+        let data = spec.build_data(2, ROWS_PER_BATCH).unwrap();
+        assert_eq!(data.num_batches, 2);
+        assert_eq!(data.arrays.len(), 1);
+        assert_eq!(data.scalars.len(), 3);
+        assert_eq!(data.arrays[0].len(), 2);
+        assert_eq!(WKB_GEOMETRY.storage_type(), data.arrays[0][0].data_type());
+        assert_eq!(data.scalars[0].data_type(), DataType::Float64);
+        assert_eq!(data.scalars[1].data_type(), DataType::Utf8);
+        assert_eq!(data.scalars[2].data_type(), DataType::Int32);
+    }
+
+    #[test]
     fn args_scalar_array() {
         let spec = BenchmarkArgs::ScalarArray(
             BenchmarkArgSpec::Point,
@@ -856,5 +1010,43 @@ mod test {
         assert_eq!(data.arrays[2][0].data_type(), &DataType::Float64);
         assert_eq!(data.arrays[3].len(), 2);
         assert_eq!(data.arrays[3][0].data_type(), &DataType::Float64);
+    }
+
+    #[test]
+    fn test_raster_generation() {
+        use sedona_schema::datatypes::{raster_iterator, RasterRef, RASTER};
+
+        let spec = BenchmarkArgs::Array(BenchmarkArgSpec::Raster(10, 5, 3));
+
+        assert_eq!(spec.sedona_types(), [RASTER]);
+
+        let data = spec.build_data(2, 4).unwrap(); // 2 batches, 4 rasters per batch
+        assert_eq!(data.num_batches, 2);
+        assert_eq!(data.arrays.len(), 1);
+        assert_eq!(data.scalars.len(), 0);
+        assert_eq!(data.arrays[0].len(), 2); // 2 batches
+
+        // Check that it's a raster type
+        assert_eq!(data.arrays[0][0].data_type(), RASTER.storage_type());
+
+        // Check the first batch has the right structure
+        let first_batch = data.arrays[0][0].clone();
+        let raster_array = first_batch
+            .as_any()
+            .downcast_ref::<arrow_array::StructArray>()
+            .unwrap();
+
+        let iterator = raster_iterator(raster_array);
+        assert_eq!(iterator.len(), 4); // 4 rasters per batch
+
+        // Check first raster metadata
+        let first_raster = iterator.get(0).unwrap();
+        assert_eq!(first_raster.metadata().width(), 10);
+        assert_eq!(first_raster.metadata().height(), 5);
+        assert_eq!(first_raster.bands().len(), 3);
+
+        // Check that band data exists and has the right size
+        let first_band = first_raster.bands().band(1).unwrap();
+        assert_eq!(first_band.data().len(), 50); // 10 * 5 pixels
     }
 }

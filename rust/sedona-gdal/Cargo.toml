@@ -13,6 +13,8 @@ result_large_err = "allow"
 
 [dev-dependencies]
 rstest = { workspace = true }
+sedona-testing = { path = "../../rust/sedona-testing", features = ["criterion"] }
+criterion = { workspace = true}
 
 [dependencies]
 arrow = { workspace = true }
@@ -26,3 +28,7 @@ sedona-expr = { path = "../sedona-expr" }
 sedona-functions = { path = "../sedona-functions" }
 sedona-raster = { path = "../sedona-raster" }
 sedona-schema = { path = "../sedona-schema" }
+
+[[bench]]
+name = "gdal-functions"
+harness = false

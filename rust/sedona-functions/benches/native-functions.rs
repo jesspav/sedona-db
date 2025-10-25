@@ -21,6 +21,11 @@ use sedona_testing::benchmark_util::{benchmark, BenchmarkArgSpec::*, BenchmarkAr
 fn criterion_benchmark(c: &mut Criterion) {
     let f = sedona_functions::register::default_function_set();
 
+    benchmark::scalar(c, &f, "native", "rs_width", Raster(128, 128, 1));
+
+    let args = BenchmarkArgs::ArrayScalar(Raster(8, 8, 1), Int32(1, 2));
+    benchmark::scalar(c, &f, "native", "rs_asmatrix", args);
+
     let st_asbinary: ScalarUDF = f.scalar_udf("st_asbinary").unwrap().clone().into();
     let st_astext: ScalarUDF = f.scalar_udf("st_astext").unwrap().clone().into();
 

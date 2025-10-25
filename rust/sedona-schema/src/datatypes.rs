@@ -104,9 +104,12 @@ impl SedonaType {
 
     /// Given an [`ExtensionType`], construct a SedonaType
     pub fn from_extension_type(extension: ExtensionType) -> Result<SedonaType> {
-        let (edges, crs) = deserialize_edges_and_crs(&extension.extension_metadata)?;
         if extension.extension_name == "geoarrow.wkb" {
+            let (edges, crs) = deserialize_edges_and_crs(&extension.extension_metadata)?;
             sedona_type_wkb(edges, crs, extension.storage_type)
+        } else if extension.extension_name == "sedona.raster" {
+            // For raster extension types, return the RASTER constant
+            Ok(RASTER)
         } else {
             sedona_internal_err!(
                 "Extension type not implemented: <{}>:{}",

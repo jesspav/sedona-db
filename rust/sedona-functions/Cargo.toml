@@ -44,6 +44,7 @@ geo-traits = { workspace = true }
 sedona-common = { path = "../sedona-common" }
 sedona-expr = { path = "../sedona-expr" }
 sedona-geometry = { path = "../sedona-geometry" }
+sedona-raster = { path = "../sedona-raster" }
 sedona-schema = { path = "../sedona-schema" }
 wkb = { workspace = true }
 wkt = { workspace = true }

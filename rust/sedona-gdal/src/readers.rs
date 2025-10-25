@@ -26,14 +26,13 @@ use sedona_schema::datatypes::{
 };
 use std::sync::Arc;
 
-pub fn read_raster(
-    filepath: &str,
-) -> Result<Arc<StructArray>, ArrowError> {
+pub fn read_raster(filepath: &str) -> Result<Arc<StructArray>, ArrowError> {
     let dataset = Dataset::open(filepath.to_string())
         .map_err(|err| ArrowError::ParseError(err.to_string()))?;
 
     // Extract geotransform components
-    let (origin_x, origin_y, pixel_width, pixel_height, rotation_x, rotation_y) = geotransform_components(&dataset)?;   
+    let (origin_x, origin_y, pixel_width, pixel_height, rotation_x, rotation_y) =
+        geotransform_components(&dataset)?;
 
     let (raster_width, raster_height) = dataset.raster_size();
 
@@ -158,18 +157,18 @@ mod tests {
 
     #[test]
     fn test_load_raster() {
-       // TODO: Add proper tests here. 
-       // To load a raster and view contents
-       // for prototyping fun:
-       //
-       // let filepath = "<your_path>/test1.tiff";
-       // let result = read_raster(filepath);
-       // assert!(result.is_ok());
-       //
-       // To view loaded raster:
-       // let raster_array = result.unwrap();
-       // for raster in raster_iterator(&raster_array) {
-       //    println!("{}", pretty_print_indb(&raster, 1, 2).unwrap());
-       // }
+        // TODO: Add proper tests here.
+        // To load a raster and view contents
+        // for prototyping fun:
+        //
+        // let filepath = "<your_path>/test1.tiff";
+        // let result = read_raster(filepath);
+        // assert!(result.is_ok());
+        //
+        // To view loaded raster:
+        // let raster_array = result.unwrap();
+        // for raster in raster_iterator(&raster_array) {
+        //    println!("{}", pretty_print_indb(&raster, 1, 2).unwrap());
+        // }
     }
 }

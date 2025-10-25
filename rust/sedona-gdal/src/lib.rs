@@ -17,4 +17,5 @@
 
 pub mod dataset;
 pub mod readers;
+pub mod register;
 pub mod rs_value;

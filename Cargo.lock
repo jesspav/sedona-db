@@ -4967,6 +4967,7 @@ dependencies = [
  "sedona-common",
  "sedona-expr",
  "sedona-geometry",
+ "sedona-raster",
  "sedona-schema",
  "sedona-testing",
  "serde_json",
@@ -4982,6 +4983,7 @@ dependencies = [
  "arrow",
  "arrow-array",
  "arrow-schema",
+ "criterion",
  "datafusion-common",
  "datafusion-expr",
  "gdal",
@@ -4991,6 +4993,7 @@ dependencies = [
  "sedona-functions",
  "sedona-raster",
  "sedona-schema",
+ "sedona-testing",
 ]
 
 [[package]]
