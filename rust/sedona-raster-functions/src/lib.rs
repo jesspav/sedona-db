@@ -16,5 +16,5 @@
 // under the License.
 
 mod executor;
-pub mod rs_size;
 pub mod register;
+pub mod rs_size;
