@@ -34,7 +34,7 @@ arrow-buffer = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
 sedona-common = { path = "../sedona-common" }
-sedona-expr = { path = "../../rust/sedona-expr" }
+sedona-expr = { path = "../sedona-expr" }
 sedona-raster = { path = "../sedona-raster" }
 sedona-schema = { path = "../sedona-schema" }
 sedona-testing = { path = "../sedona-testing" }

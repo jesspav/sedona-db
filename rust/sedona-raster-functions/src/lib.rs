@@ -17,3 +17,4 @@
 
 mod executor;
 pub mod rs_size;
+pub mod register;
