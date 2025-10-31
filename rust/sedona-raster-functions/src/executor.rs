@@ -60,10 +60,11 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
     where
         F: FnMut(usize, Option<RasterRefImpl<'_>>) -> Result<()>,
     {
-        assert!(
-            self.arg_types[0] == RASTER,
-            "First argument must be a raster type"
-        );
+        if self.arg_types[0] != RASTER {
+            return Err(DataFusionError::Internal(
+                "First argument must be a raster type".to_string(),
+            ));
+        }
         let raster_array = match &self.args[0] {
             ColumnarValue::Array(array) => array,
             ColumnarValue::Scalar(_) => {
@@ -90,9 +91,7 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
                 func(i, None)?;
                 continue;
             }
-            let raster = raster_array.get(i).ok_or_else(|| {
-                DataFusionError::Internal(format!("Failed to get raster at index {}", i))
-            })?;
+            let raster = raster_array.get(i)?;
 
             func(i, Some(raster))?;
         }

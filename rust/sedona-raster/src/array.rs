@@ -467,12 +467,15 @@ impl<'a> RasterStructArray<'a> {
     }
 
     /// Get a specific raster by index without consuming the iterator
-    pub fn get(&self, index: usize) -> Option<RasterRefImpl<'a>> {
+    pub fn get(&self, index: usize) -> Result<RasterRefImpl<'a>, ArrowError> {
         if index >= self.raster_array.len() {
-            return None;
+            return Err(ArrowError::InvalidArgumentError(format!(
+                "Invalid raster index: {}",
+                index
+            )));
         }
 
-        Some(RasterRefImpl::new(self.raster_array, index))
+        Ok(RasterRefImpl::new(self.raster_array, index))
     }
 
     pub fn is_null(&self, index: usize) -> bool {
