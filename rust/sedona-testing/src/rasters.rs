@@ -21,9 +21,8 @@ use sedona_raster::traits::{BandMetadata, RasterMetadata};
 use sedona_schema::raster::{BandDataType, StorageType};
 
 /// Generate a StructArray of rasters with sequentially increasing dimensions and pixel values
-/// These tiny rasters are for to provide easy to verify test data
-/// Each raster will have one band of UInt16 data
-pub fn sequential_rasters(
+/// These tiny rasters are to provide fast, easy and predictable test data for unit tests.
+pub fn generate_test_rasters(
     count: usize,
     null_raster_index: Option<usize>,
 ) -> Result<StructArray, ArrowError> {
@@ -76,14 +75,14 @@ mod tests {
     use sedona_raster::traits::RasterRef;
 
     #[test]
-    fn test_sequential_rasters() {
+    fn test_generate_test_rasters() {
         let count = 5;
-        let struct_array = sequential_rasters(count, None).unwrap();
+        let struct_array = generate_test_rasters(count, None).unwrap();
         let raster_array = RasterStructArray::new(&struct_array);
         assert_eq!(raster_array.len(), count);
 
         for i in 0..count {
-            let raster = raster_array.get(i - 1).unwrap();
+            let raster = raster_array.get(i).unwrap();
             let metadata = raster.metadata();
             assert_eq!(metadata.width(), i as u64 + 1);
             assert_eq!(metadata.height(), i as u64 + 2);

@@ -144,13 +144,13 @@ mod tests {
     use arrow_array::UInt64Array;
     use sedona_raster::traits::RasterRef;
     use sedona_schema::datatypes::RASTER;
-    use sedona_testing::rasters::sequential_rasters;
+    use sedona_testing::rasters::generate_test_rasters;
     use std::sync::Arc;
 
     #[test]
     fn test_raster_executor_execute_raster_void() {
         // 3 rasters, second one is null
-        let rasters = sequential_rasters(3, Some(1)).unwrap();
+        let rasters = generate_test_rasters(3, Some(1)).unwrap();
         let args = [ColumnarValue::Array(Arc::new(rasters))];
         let arg_types = vec![RASTER];
 

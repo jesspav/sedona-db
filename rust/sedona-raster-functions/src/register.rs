@@ -38,14 +38,7 @@ pub fn default_function_set() -> FunctionSet {
 
     register_scalar_udfs!(function_set, crate::rs_size::rs_width_udf,);
 
-    register_aggregate_udfs!(
-        function_set,
-        crate::st_analyze_aggr::st_analyze_aggr_udf,
-        crate::st_collect::st_collect_udf,
-        crate::st_envelope_aggr::st_envelope_aggr_udf,
-        crate::st_intersection_aggr::st_intersection_aggr_udf,
-        crate::st_union_aggr::st_union_aggr_udf,
-    );
+    register_aggregate_udfs!(function_set,);
 
     function_set
 }
@@ -55,16 +48,4 @@ pub fn default_function_set() -> FunctionSet {
 /// These functions are included in the default function set; however,
 /// it is useful to expose them individually for testing in crates that
 /// implement them.
-pub mod stubs {
-    pub use crate::overlay::*;
-    pub use crate::predicates::*;
-    pub use crate::referencing::*;
-    pub use crate::st_area::st_area_udf;
-    pub use crate::st_azimuth::st_azimuth_udf;
-    pub use crate::st_centroid::st_centroid_udf;
-    pub use crate::st_length::st_length_udf;
-    pub use crate::st_perimeter::st_perimeter_udf;
-    pub use crate::st_setsrid::st_set_crs_with_engine_udf;
-    pub use crate::st_setsrid::st_set_srid_with_engine_udf;
-    pub use crate::st_transform::st_transform_udf;
-}
+pub mod stubs {}
