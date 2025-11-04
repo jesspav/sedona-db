@@ -19,6 +19,7 @@ use arrow_array::{Array, ArrayRef, StructArray};
 use datafusion_common::error::Result;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::ColumnarValue;
+use sedona_common::sedona_internal_err;
 use sedona_raster::array::{RasterRefImpl, RasterStructArray};
 use sedona_schema::datatypes::SedonaType;
 use sedona_schema::datatypes::RASTER;
@@ -61,9 +62,7 @@ impl<'a, 'b> RasterExecutor<'a, 'b> {
         F: FnMut(usize, Option<RasterRefImpl<'_>>) -> Result<()>,
     {
         if self.arg_types[0] != RASTER {
-            return Err(DataFusionError::Internal(
-                "First argument must be a raster type".to_string(),
-            ));
+            return sedona_internal_err!("First argument must be a raster type");
         }
         let raster_array = match &self.args[0] {
             ColumnarValue::Array(array) => array,
