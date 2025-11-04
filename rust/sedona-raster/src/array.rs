@@ -489,6 +489,7 @@ mod tests {
     use crate::builder::RasterBuilder;
     use crate::traits::{BandMetadata, RasterMetadata};
     use sedona_schema::raster::{BandDataType, StorageType};
+    use sedona_testing::rasters::generate_test_rasters;
 
     #[test]
     fn test_array_basic_functionality() {
@@ -631,35 +632,7 @@ mod tests {
 
     #[test]
     fn test_raster_is_null() {
-        let mut builder = RasterBuilder::new(2);
-        let metadata = RasterMetadata {
-            width: 5,
-            height: 5,
-            upperleft_x: 0.0,
-            upperleft_y: 0.0,
-            scale_x: 1.0,
-            scale_y: -1.0,
-            skew_x: 0.0,
-            skew_y: 0.0,
-        };
-        // First raster is valid
-        builder.start_raster(&metadata, None).unwrap();
-        let band_metadata = BandMetadata {
-            nodata_value: Some(vec![255u8]),
-            storage_type: StorageType::InDb,
-            datatype: BandDataType::UInt8,
-            outdb_url: None,
-            outdb_band_id: None,
-        };
-        builder.start_band(band_metadata).unwrap();
-        let test_data = vec![1u8; 25];
-        builder.band_data_writer().append_value(&test_data);
-        builder.finish_band().unwrap();
-        builder.finish_raster().unwrap();
-        // Second raster is null
-        builder.append_null().unwrap();
-
-        let raster_array = builder.finish().unwrap();
+        let raster_array = generate_test_rasters(2, Some(1)).unwrap();
         let rasters = RasterStructArray::new(&raster_array);
         assert_eq!(rasters.len(), 2);
         assert!(!rasters.is_null(0));

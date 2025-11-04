@@ -54,7 +54,7 @@ pub fn generate_test_rasters(
             outdb_band_id: None,
         })?;
 
-        let pixel_count = i * (i + 1);
+        let pixel_count = (i + 1) * (i + 2); // width * height
         let mut band_data = Vec::with_capacity(pixel_count * 2); // 2 bytes per u16
         for pixel_value in 0..pixel_count as u16 {
             band_data.extend_from_slice(&pixel_value.to_le_bytes());
@@ -103,7 +103,7 @@ mod tests {
             assert_eq!(band_metadata.outdb_band_id(), None);
 
             let band_data = band.data();
-            let expected_pixel_count = i * (i + 1); // width * height
+            let expected_pixel_count = (i + 1) * (i + 2); // width * height
 
             // Convert raw bytes back to u16 values for comparison
             let mut actual_pixel_values = Vec::new();

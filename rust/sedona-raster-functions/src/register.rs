@@ -42,10 +42,3 @@ pub fn default_function_set() -> FunctionSet {
 
     function_set
 }
-
-/// Functions whose implementations are registered independently
-///
-/// These functions are included in the default function set; however,
-/// it is useful to expose them individually for testing in crates that
-/// implement them.
-pub mod stubs {}

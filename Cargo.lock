@@ -5127,6 +5127,7 @@ dependencies = [
  "arrow-schema",
  "sedona-common",
  "sedona-schema",
+ "sedona-testing",
 ]
 
 [[package]]
