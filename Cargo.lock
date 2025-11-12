@@ -5064,6 +5064,7 @@ dependencies = [
  "sedona-raster",
  "sedona-schema",
  "sedona-testing",
+ "tempfile",
 ]
 
 [[package]]

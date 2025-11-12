@@ -389,7 +389,10 @@ pub fn assert_raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) {
 
 /// Compare two RasterStructArrays for equality
 /// This compares each raster's metadata and band data for equality
-pub fn raster_arrays_equal(raster_array1: &RasterStructArray, raster_array2: &RasterStructArray) -> bool {
+pub fn raster_arrays_equal(
+    raster_array1: &RasterStructArray,
+    raster_array2: &RasterStructArray,
+) -> bool {
     if raster_array1.len() != raster_array2.len() {
         return false;
     }
@@ -451,7 +454,7 @@ pub fn raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) -> bool 
     }
 
     true
-}   
+}
 
 #[cfg(test)]
 mod tests {
