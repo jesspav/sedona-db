@@ -26,10 +26,11 @@ use rand::{distributions::Uniform, rngs::StdRng, Rng, SeedableRng};
 
 use sedona_common::sedona_internal_err;
 use sedona_geometry::types::GeometryTypeId;
-use sedona_schema::datatypes::{SedonaType, WKB_GEOMETRY};
+use sedona_schema::datatypes::{SedonaType, RASTER, WKB_GEOMETRY};
 
 use crate::{
     datagen::RandomPartitionedDataBuilder,
+    rasters::generate_random_rasters,
     testers::{AggregateUdfTester, ScalarUdfTester},
 };
 
@@ -281,6 +282,9 @@ pub enum BenchmarkArgSpec {
     Transformed(Box<BenchmarkArgSpec>, ScalarUDF),
     /// A string that will be a constant
     String(String),
+    /// Randomly generated raster input with a specified width, height and number
+    // of bands.
+    Raster(usize, usize, usize),
 }
 
 // Custom implementation of Debug because otherwise the output of Transformed()
@@ -295,6 +299,7 @@ impl Debug for BenchmarkArgSpec {
             Self::Float64(arg0, arg1) => f.debug_tuple("Float64").field(arg0).field(arg1).finish(),
             Self::Transformed(inner, t) => write!(f, "{}({:?})", t.name(), inner),
             Self::String(s) => write!(f, "String({s})"),
+            Self::Raster(w, h, b) => f.debug_tuple("Raster").field(w).field(h).field(b).finish(),
         }
     }
 }
@@ -313,6 +318,7 @@ impl BenchmarkArgSpec {
                 tester.return_type().unwrap()
             }
             BenchmarkArgSpec::String(_) => SedonaType::Arrow(DataType::Utf8),
+            BenchmarkArgSpec::Raster(_, _, _) => RASTER,
         }
     }
 
@@ -393,6 +399,14 @@ impl BenchmarkArgSpec {
                     })
                     .collect::<Result<Vec<_>>>()?;
                 Ok(string_array)
+            }
+            BenchmarkArgSpec::Raster(width, height, bands) => {
+                let mut arrays = vec![];
+                for _ in 0..num_batches {
+                    let raster = generate_random_rasters(rows_per_batch, *width, *height, *bands)?;
+                    arrays.push(Arc::new(raster) as ArrayRef);
+                }
+                Ok(arrays)
             }
         }
     }
@@ -537,7 +551,7 @@ impl BenchmarkData {
 
 #[cfg(test)]
 mod test {
-    use arrow_array::Array;
+    use arrow_array::{Array, StructArray};
     use datafusion_common::cast::as_binary_array;
     use datafusion_expr::{ColumnarValue, SimpleScalarUDF};
     use geo_traits::Dimensions;
@@ -856,5 +870,25 @@ mod test {
         assert_eq!(data.arrays[2][0].data_type(), &DataType::Float64);
         assert_eq!(data.arrays[3].len(), 2);
         assert_eq!(data.arrays[3][0].data_type(), &DataType::Float64);
+    }
+
+    #[test]
+    fn arg_spec_raster() {
+        use sedona_raster::array::RasterStructArray;
+        use sedona_raster::traits::RasterRef;
+
+        let spec = BenchmarkArgSpec::Raster(10, 5, 3);
+        assert_eq!(spec.sedona_type(), RASTER);
+        let data = spec.build_arrays(0, 2, ROWS_PER_BATCH).unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0].data_type(), RASTER.storage_type());
+
+        let raster_array = data[0].as_any().downcast_ref::<StructArray>().unwrap();
+        let rasters = RasterStructArray::new(raster_array);
+        assert_eq!(rasters.len(), ROWS_PER_BATCH);
+        let raster = rasters.get(0).unwrap();
+        let metadata = raster.metadata();
+        assert_eq!(metadata.width(), 10);
+        assert_eq!(metadata.height(), 5);
     }
 }

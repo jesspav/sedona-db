@@ -68,6 +68,91 @@ pub fn generate_test_rasters(
     builder.finish()
 }
 
+pub fn generate_random_raster(
+    width: usize,
+    height: usize,
+    bands: usize,
+) -> Result<StructArray, ArrowError> {
+    let mut builder = RasterBuilder::new(1);
+    let raster_metadata = RasterMetadata {
+        width: width as u64,
+        height: height as u64,
+        upperleft_x: 0.0,
+        upperleft_y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        skew_x: 0.0,
+        skew_y: 0.0,
+    };
+    builder.start_raster(&raster_metadata, None)?;
+    for _ in 0..bands {
+        builder.start_band(BandMetadata {
+            datatype: BandDataType::UInt16,
+            nodata_value: Some(vec![0u8; 2]),
+            storage_type: StorageType::InDb,
+            outdb_url: None,
+            outdb_band_id: None,
+        })?;
+
+        let pixel_count = width * height;
+        let mut band_data = Vec::with_capacity(pixel_count * 2); // 2 bytes per u16
+        for _ in 0..pixel_count {
+            let pixel_value = fastrand::u16(1..=128);
+            band_data.extend_from_slice(&pixel_value.to_le_bytes());
+        }
+
+        builder.band_data_writer().append_value(&band_data);
+        builder.finish_band()?;
+    }
+    builder.finish_raster()?;
+
+    builder.finish()
+}
+
+pub fn generate_random_rasters(
+    count: usize,
+    width: usize,
+    height: usize,
+    bands: usize,
+) -> Result<StructArray, ArrowError> {
+    let mut builder = RasterBuilder::new(count);
+    for _ in 0..count {
+        let raster_metadata = RasterMetadata {
+            width: width as u64,
+            height: height as u64,
+            upperleft_x: 0.0,
+            upperleft_y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+        };
+        builder.start_raster(&raster_metadata, None)?;
+        for _ in 0..bands {
+            builder.start_band(BandMetadata {
+                datatype: BandDataType::UInt16,
+                nodata_value: Some(vec![0u8; 2]),
+                storage_type: StorageType::InDb,
+                outdb_url: None,
+                outdb_band_id: None,
+            })?;
+
+            let pixel_count = width * height;
+            let mut band_data = Vec::with_capacity(pixel_count * 2); // 2 bytes per u16
+            for _ in 0..pixel_count {
+                let pixel_value = fastrand::u16(1..=128);
+                band_data.extend_from_slice(&pixel_value.to_le_bytes());
+            }
+
+            builder.band_data_writer().append_value(&band_data);
+            builder.finish_band()?;
+        }
+        builder.finish_raster()?;
+    }
+
+    builder.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
