@@ -283,7 +283,7 @@ pub enum BenchmarkArgSpec {
     /// A string that will be a constant
     String(String),
     /// Randomly generated raster input with a specified width, height and number
-    // of bands.
+    /// of bands.
     Raster(usize, usize, usize),
 }
 

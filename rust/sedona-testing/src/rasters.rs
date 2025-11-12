@@ -68,47 +68,7 @@ pub fn generate_test_rasters(
     builder.finish()
 }
 
-pub fn generate_random_raster(
-    width: usize,
-    height: usize,
-    bands: usize,
-) -> Result<StructArray, ArrowError> {
-    let mut builder = RasterBuilder::new(1);
-    let raster_metadata = RasterMetadata {
-        width: width as u64,
-        height: height as u64,
-        upperleft_x: 0.0,
-        upperleft_y: 0.0,
-        scale_x: 1.0,
-        scale_y: 1.0,
-        skew_x: 0.0,
-        skew_y: 0.0,
-    };
-    builder.start_raster(&raster_metadata, None)?;
-    for _ in 0..bands {
-        builder.start_band(BandMetadata {
-            datatype: BandDataType::UInt16,
-            nodata_value: Some(vec![0u8; 2]),
-            storage_type: StorageType::InDb,
-            outdb_url: None,
-            outdb_band_id: None,
-        })?;
-
-        let pixel_count = width * height;
-        let mut band_data = Vec::with_capacity(pixel_count * 2); // 2 bytes per u16
-        for _ in 0..pixel_count {
-            let pixel_value = fastrand::u16(1..=128);
-            band_data.extend_from_slice(&pixel_value.to_le_bytes());
-        }
-
-        builder.band_data_writer().append_value(&band_data);
-        builder.finish_band()?;
-    }
-    builder.finish_raster()?;
-
-    builder.finish()
-}
-
+/// Generate a StructArray of rasters with random pixel values
 pub fn generate_random_rasters(
     count: usize,
     width: usize,
@@ -198,6 +158,47 @@ mod tests {
             }
             let expected_pixel_values: Vec<u16> = (0..expected_pixel_count as u16).collect();
             assert_eq!(actual_pixel_values, expected_pixel_values);
+        }
+    }
+
+    #[test]
+    fn test_generate_random_rasters() {
+        let count = 3;
+        let width = 4;
+        let height = 5;
+        let bands = 2;
+        let struct_array = generate_random_rasters(count, width, height, bands).unwrap();
+        let raster_array = RasterStructArray::new(&struct_array);
+        assert_eq!(raster_array.len(), count);
+        for i in 0..count {
+            let raster = raster_array.get(i).unwrap();
+            let metadata = raster.metadata();
+            assert_eq!(metadata.width(), width as u64);
+            assert_eq!(metadata.height(), height as u64);
+
+            let bands_ref = raster.bands();
+            assert_eq!(bands_ref.len(), bands);
+
+            for b in 1..bands + 1 {
+                let band = bands_ref.band(b).unwrap();
+                let band_metadata = band.metadata();
+                assert_eq!(band_metadata.data_type(), BandDataType::UInt16);
+                assert_eq!(band_metadata.nodata_value(), Some(&[0u8, 0u8][..]));
+                assert_eq!(band_metadata.storage_type(), StorageType::InDb);
+                assert_eq!(band_metadata.outdb_url(), None);
+                assert_eq!(band_metadata.outdb_band_id(), None);
+
+                let band_data = band.data();
+                let expected_pixel_count = width * height;
+
+                // Convert raw bytes back to u16 values for comparison
+                let mut actual_pixel_values = Vec::new();
+                for chunk in band_data.chunks_exact(2) {
+                    let value = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    actual_pixel_values.push(value);
+                }
+                assert_eq!(actual_pixel_values.len(), expected_pixel_count);
+            }
         }
     }
 }
