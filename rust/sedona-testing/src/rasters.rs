@@ -195,7 +195,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 2 && pos * 2 + 1 < data.len() {
+                if nodata.len() >= 2 && pos * 2 + 2 <= data.len() {
                     data[pos * 2..(pos * 2) + 2].copy_from_slice(&nodata[0..2]);
                 }
             }
