@@ -208,7 +208,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 2 && pos * 2 + 1 < data.len() {
+                if nodata.len() >= 2 && pos * 2 + 2 <= data.len() {
                     data[pos * 2..(pos * 2) + 2].copy_from_slice(&nodata[0..2]);
                 }
             }
@@ -221,7 +221,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 4 && pos * 4 + 3 < data.len() {
+                if nodata.len() >= 4 && pos * 4 + 4 <= data.len() {
                     data[pos * 4..(pos * 4) + 4].copy_from_slice(&nodata[0..4]);
                 }
             }
@@ -234,7 +234,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 4 && pos * 4 + 3 < data.len() {
+                if nodata.len() >= 4 && pos * 4 + 4 <= data.len() {
                     data[pos * 4..(pos * 4) + 4].copy_from_slice(&nodata[0..4]);
                 }
             }
@@ -247,7 +247,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 4 && pos * 4 + 3 < data.len() {
+                if nodata.len() >= 4 && pos * 4 + 4 <= data.len() {
                     data[pos * 4..(pos * 4) + 4].copy_from_slice(&nodata[0..4]);
                 }
             }
@@ -260,7 +260,7 @@ fn generate_random_band_data(
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
-                if nodata.len() >= 8 && pos * 8 + 7 < data.len() {
+                if nodata.len() >= 8 && pos * 8 + 8 <= data.len() {
                     data[pos * 8..(pos * 8) + 8].copy_from_slice(&nodata[0..8]);
                 }
             }
