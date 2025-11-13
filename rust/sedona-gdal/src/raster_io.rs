@@ -26,6 +26,51 @@ use sedona_raster::utils::{bytes_per_pixel, f64_to_bandtype_bytes};
 use sedona_schema::raster::{BandDataType, StorageType};
 use std::sync::Arc;
 
+// ============================================================================
+// Format-specific convenience wrappers
+// ============================================================================
+
+/// Reads a GeoTIFF file using GDAL and converts it into a StructArray of rasters.
+///
+/// This is a convenience wrapper around [`read_raster`] for GeoTIFF files.
+///
+/// # Arguments
+/// * `filepath` - Path to the GeoTIFF file
+/// * `tile_size_opt` - Optional tile size to override dataset metadata
+pub fn read_geotiff(
+    filepath: &str,
+    tile_size_opt: Option<(usize, usize)>,
+) -> Result<Arc<StructArray>, ArrowError> {
+    // Check that the filepath has a GeoTIFF extension
+    let filepath_lower = filepath.to_lowercase();
+    if !filepath_lower.ends_with(".tif") && !filepath_lower.ends_with(".tiff") {
+        return Err(ArrowError::InvalidArgumentError(format!(
+            "Expected GeoTIFF file with .tif or .tiff extension, got: {}",
+            filepath
+        )));
+    }
+    read_raster(filepath, tile_size_opt)
+}
+
+/// Writes a tiled raster StructArray to a GeoTIFF file using GDAL.
+///
+/// This is a convenience wrapper around [`write_raster`] for GeoTIFF files.
+///
+/// # Arguments
+/// * `raster_array` - The raster struct array to write
+/// * `filepath` - Path to the output GeoTIFF file
+pub fn write_geotiff(raster_array: &StructArray, filepath: &str) -> Result<(), ArrowError> {
+    // Check that the filepath has a GeoTIFF extension
+    let filepath_lower = filepath.to_lowercase();
+    if !filepath_lower.ends_with(".tif") && !filepath_lower.ends_with(".tiff") {
+        return Err(ArrowError::InvalidArgumentError(format!(
+            "Expected GeoTIFF file with .tif or .tiff extension, got: {}",
+            filepath
+        )));
+    }
+    write_raster(raster_array, filepath, "GTiff")
+}
+
 /// Reads a raster file using GDAL and converts it into a StructArray of rasters.
 ///
 /// Currently only supports reading rasters into InDb storage type.
@@ -34,7 +79,7 @@ use std::sync::Arc;
 /// # Arguments
 /// * `filepath` - Path to the raster file
 /// * `tile_size_opt` - Optional tile size to override dataset metadata (uses dataset metadata if None)
-pub fn read_raster_geotiff(
+pub fn read_raster(
     filepath: &str,
     tile_size_opt: Option<(usize, usize)>,
 ) -> Result<Arc<StructArray>, ArrowError> {
@@ -126,7 +171,7 @@ pub fn read_raster_geotiff(
                     &mut band_data,
                 )?;
 
-                // Write the band data (now zero-copy since we're just passing the vec)
+                // Write the band data
                 raster_builder.band_data_writer().append_value(&band_data);
 
                 // Finalize the band
@@ -144,6 +189,7 @@ pub fn read_raster_geotiff(
 }
 
 /// Helper function to read band data from GDAL directly into a pre-allocated byte buffer
+/// Casts the buffer to the appropriate type and reads directly onto `output`
 fn read_band_data_into(
     band: &RasterBand,
     window_origin: (isize, isize),
@@ -155,13 +201,11 @@ fn read_band_data_into(
 
     match data_type {
         BandDataType::UInt8 => {
-            // For UInt8, we can read directly into the output buffer
             band.read_into_slice(window_origin, window_size, window_size, output, None)
                 .map_err(|e| ArrowError::ParseError(format!("Failed to read band data: {e}")))?;
             Ok(())
         }
         BandDataType::UInt16 => {
-            // Cast the output buffer to the appropriate type
             let typed_output = unsafe {
                 std::slice::from_raw_parts_mut(output.as_mut_ptr() as *mut u16, pixel_count)
             };
@@ -212,11 +256,21 @@ fn read_band_data_into(
     }
 }
 
-/// Write a tiled raster StructArray to a GeoTIFF file using GDAL.
+/// Write a tiled raster StructArray to a raster file using GDAL.
 ///
+/// This is a generic function that works with any GDAL-supported raster format.
 /// Currently only supports writing rasters with InDb storage type.
 /// OutDb storage types will return a NotYetImplemented error.
-pub fn write_geotiff(raster_array: &StructArray, filepath: &str) -> Result<(), ArrowError> {
+///
+/// # Arguments
+/// * `raster_array` - The raster struct array to write
+/// * `filepath` - Path to the output file
+/// * `driver_name` - GDAL driver name (e.g., "GTiff", "Zarr")
+fn write_raster(
+    raster_array: &StructArray,
+    filepath: &str,
+    driver_name: &str,
+) -> Result<(), ArrowError> {
     use gdal::{DriverManager, Metadata};
     use sedona_raster::array::RasterStructArray;
     use sedona_raster::traits::RasterRef;
@@ -268,9 +322,10 @@ pub fn write_geotiff(raster_array: &StructArray, filepath: &str) -> Result<(), A
     let total_width = ((max_x - min_x) / scale_x).abs().round() as usize;
     let total_height = ((max_y - min_y) / scale_y).abs().round() as usize;
 
-    // Get the GTiff driver
-    let driver = DriverManager::get_driver_by_name("GTiff")
-        .map_err(|e| ArrowError::ParseError(format!("Failed to get GTiff driver: {e}")))?;
+    // Get GDAL driver by name
+    let driver = DriverManager::get_driver_by_name(driver_name).map_err(|e| {
+        ArrowError::ParseError(format!("Failed to get {} driver: {e}", driver_name))
+    })?;
 
     // Create dataset based on data type
     let mut dataset = match data_type {
@@ -362,17 +417,16 @@ pub fn write_geotiff(raster_array: &StructArray, filepath: &str) -> Result<(), A
             )?;
 
             // Set nodata value if present
+            // Note: Some drivers (e.g., Zarr) don't support nodata values, so we ignore errors
             if let Some(nodata_bytes) = band.metadata().nodata_value() {
                 if let Some(nodata_f64) = bytes_to_f64(nodata_bytes, band.metadata().data_type()) {
-                    gdal_band.set_no_data_value(Some(nodata_f64)).map_err(|e| {
-                        ArrowError::ParseError(format!("Failed to set nodata value: {e}"))
-                    })?;
+                    let _ = gdal_band.set_no_data_value(Some(nodata_f64));
                 }
             }
         }
     }
 
-    // Flush the dataset to disk
+    // Flush the dataset
     dataset.flush_cache().map_err(|e| {
         ArrowError::ParseError(format!("Failed to flush cache when writing GeoTIFF: {e}"))
     })?;
@@ -486,7 +540,7 @@ mod tests {
     use sedona_raster::array::RasterStructArray;
     use sedona_raster::traits::RasterRef;
     use sedona_schema::raster::BandDataType;
-    use sedona_testing::rasters::{generate_tiled_rasters, raster_arrays_equal};
+    use sedona_testing::rasters::{assert_raster_arrays_equal, generate_tiled_rasters};
     use tempfile::tempdir;
 
     #[rstest]
@@ -502,10 +556,10 @@ mod tests {
         )]
         data_type: BandDataType,
     ) {
-        let raster_size = (64, 32);
         let tile_size = (16, 8);
+        let tile_count = (4, 4);
         let raster_struct =
-            generate_tiled_rasters(raster_size, tile_size, data_type.clone()).unwrap();
+            generate_tiled_rasters(tile_size, tile_count, data_type.clone(), Some(43)).unwrap();
 
         // Write the raster array to a temporary GeoTIFF file
         let temp_dir = tempdir().unwrap();
@@ -516,23 +570,23 @@ mod tests {
         write_geotiff(&raster_struct, filepath_str).unwrap();
 
         // Read the rasters back in from the GeoTIFF using the tile metadata
-        let read_raster_struct = read_raster_geotiff(filepath_str, None).unwrap();
+        let read_raster_struct = read_geotiff(filepath_str, None).unwrap();
         assert_eq!(raster_struct.len(), read_raster_struct.len());
 
         // Compare the original and read rasters for equality
         let raster_array = RasterStructArray::new(&raster_struct);
         let read_raster_array = RasterStructArray::new(&read_raster_struct);
-        assert!(raster_arrays_equal(&raster_array, &read_raster_array));
+        assert_raster_arrays_equal(&raster_array, &read_raster_array);
 
-        // Re-Read with new tiling parameters
-        let (new_tile_width, new_tile_height) = (4, 2);
+        // Re-Read with new tiling parameters (swap tile_count and tile_size)
+        let (new_tile_width, new_tile_height) = tile_count; // swapped
+        let (new_tile_count_x, new_tile_count_y) = tile_size; // swapped
         let read_raster_array_tiled =
-            read_raster_geotiff(filepath_str, Some((new_tile_width, new_tile_height))).unwrap();
+            read_raster(filepath_str, Some((new_tile_width, new_tile_height))).unwrap();
         let raster_retiled_array = RasterStructArray::new(&read_raster_array_tiled);
 
         // Validate the new tiling
-        let expected_tile_count =
-            (raster_size.0 / new_tile_width) * (raster_size.1 / new_tile_height);
+        let expected_tile_count = new_tile_count_x * new_tile_count_y;
         assert_eq!(expected_tile_count, raster_retiled_array.len());
         let raster = raster_retiled_array.get(0).unwrap();
         let metadata = raster.metadata();
@@ -548,17 +602,80 @@ mod tests {
 
         // Re-Read with original tiling parameters
         let read_original_tiling_raster_array =
-            read_raster_geotiff(retiled_filepath_str, Some(tile_size)).unwrap();
+            read_geotiff(retiled_filepath_str, Some(tile_size)).unwrap();
 
         // Validate that we get back the original raster array
-        assert!(raster_arrays_equal(
+        assert_raster_arrays_equal(
             &raster_array,
-            &RasterStructArray::new(&read_original_tiling_raster_array)
-        ));
+            &RasterStructArray::new(&read_original_tiling_raster_array),
+        );
 
         // Clean up
         drop(filepath);
         drop(retiled_filepath);
         temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn test_filepath_validation() {
+        // Create a simple test raster
+        let tile_size = (8, 8);
+        let tile_count = (2, 2);
+        let raster_struct =
+            generate_tiled_rasters(tile_size, tile_count, BandDataType::UInt8, Some(43)).unwrap();
+
+        let err = read_geotiff("test.zarr", None).unwrap_err();
+        assert!(err.to_string().contains("Expected GeoTIFF"));
+        assert!(err.to_string().contains(".tif or .tiff"));
+
+        let err = write_geotiff(&raster_struct, "test.zarr").unwrap_err();
+        assert!(err.to_string().contains("Expected GeoTIFF"));
+    }
+
+    #[test]
+    fn test_round_trip_conversions() {
+        // UInt8
+        let value: u8 = 255;
+        let bytes = value.to_le_bytes();
+        assert_eq!(bytes_to_f64(&bytes, BandDataType::UInt8), Some(255.0));
+
+        // UInt16
+        let value: u16 = 32768;
+        let bytes = value.to_le_bytes();
+        assert_eq!(bytes_to_f64(&bytes, BandDataType::UInt16), Some(32768.0));
+
+        // Int16
+        let value: i16 = -32768;
+        let bytes = value.to_le_bytes();
+        assert_eq!(bytes_to_f64(&bytes, BandDataType::Int16), Some(-32768.0));
+
+        // UInt32
+        let value: u32 = 2147483648;
+        let bytes = value.to_le_bytes();
+        assert_eq!(
+            bytes_to_f64(&bytes, BandDataType::UInt32),
+            Some(2147483648.0)
+        );
+
+        // Int32
+        let value: i32 = -2147483648;
+        let bytes = value.to_le_bytes();
+        assert_eq!(
+            bytes_to_f64(&bytes, BandDataType::Int32),
+            Some(-2147483648.0)
+        );
+
+        // Float32
+        let value: f32 = 256.0;
+        let bytes = value.to_le_bytes();
+        assert_eq!(bytes_to_f64(&bytes, BandDataType::Float32), Some(256.0));
+
+        // Float64
+        let value: f64 = -2147483648.3;
+        let bytes = value.to_le_bytes();
+        assert_eq!(
+            bytes_to_f64(&bytes, BandDataType::Float64),
+            Some(-2147483648.3)
+        );
     }
 }
