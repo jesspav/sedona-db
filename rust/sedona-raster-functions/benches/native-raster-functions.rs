@@ -20,7 +20,7 @@ use sedona_testing::benchmark_util::{benchmark, BenchmarkArgSpec::*};
 fn criterion_benchmark(c: &mut Criterion) {
     let f = sedona_raster_functions::register::default_function_set();
 
-    benchmark::scalar(c, &f, "native", "rs_width", Raster(128, 128, 1));
+    benchmark::scalar(c, &f, "native", "rs_width", Raster(64, 64));
 }
 
 criterion_group!(benches, criterion_benchmark);

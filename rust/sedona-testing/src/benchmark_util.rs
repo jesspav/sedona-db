@@ -27,10 +27,11 @@ use rand::{distributions::Uniform, rngs::StdRng, Rng, SeedableRng};
 use sedona_common::sedona_internal_err;
 use sedona_geometry::types::GeometryTypeId;
 use sedona_schema::datatypes::{SedonaType, RASTER, WKB_GEOMETRY};
+use sedona_schema::raster::BandDataType;
 
 use crate::{
     datagen::RandomPartitionedDataBuilder,
-    rasters::generate_random_rasters,
+    rasters::generate_tiled_rasters,
     testers::{AggregateUdfTester, ScalarUdfTester},
 };
 
@@ -282,9 +283,8 @@ pub enum BenchmarkArgSpec {
     Transformed(Box<BenchmarkArgSpec>, ScalarUDF),
     /// A string that will be a constant
     String(String),
-    /// Randomly generated raster input with a specified width, height and number
-    /// of bands.
-    Raster(usize, usize, usize),
+    /// Randomly generated raster input with a specified width, height
+    Raster(usize, usize),
 }
 
 // Custom implementation of Debug because otherwise the output of Transformed()
@@ -299,7 +299,7 @@ impl Debug for BenchmarkArgSpec {
             Self::Float64(arg0, arg1) => f.debug_tuple("Float64").field(arg0).field(arg1).finish(),
             Self::Transformed(inner, t) => write!(f, "{}({:?})", t.name(), inner),
             Self::String(s) => write!(f, "String({s})"),
-            Self::Raster(w, h, b) => f.debug_tuple("Raster").field(w).field(h).field(b).finish(),
+            Self::Raster(w, h) => f.debug_tuple("Raster").field(w).field(h).finish(),
         }
     }
 }
@@ -318,7 +318,7 @@ impl BenchmarkArgSpec {
                 tester.return_type().unwrap()
             }
             BenchmarkArgSpec::String(_) => SedonaType::Arrow(DataType::Utf8),
-            BenchmarkArgSpec::Raster(_, _, _) => RASTER,
+            BenchmarkArgSpec::Raster(_, _) => RASTER,
         }
     }
 
@@ -400,10 +400,18 @@ impl BenchmarkArgSpec {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(string_array)
             }
-            BenchmarkArgSpec::Raster(width, height, bands) => {
+            BenchmarkArgSpec::Raster(width, height) => {
                 let mut arrays = vec![];
                 for _ in 0..num_batches {
-                    let raster = generate_random_rasters(rows_per_batch, *width, *height, *bands)?;
+                    // Total size will be divided by tile size to create
+                    // rows_per_batch rasters
+                    let ttl_raster_size = (*width*rows_per_batch as usize, *height as usize);
+                    let tile_size = (*width, *height);
+                    let raster = generate_tiled_rasters(
+                        ttl_raster_size,
+                        tile_size,
+                        BandDataType::UInt8
+                    )?;
                     arrays.push(Arc::new(raster) as ArrayRef);
                 }
                 Ok(arrays)
@@ -877,7 +885,7 @@ mod test {
         use sedona_raster::array::RasterStructArray;
         use sedona_raster::traits::RasterRef;
 
-        let spec = BenchmarkArgSpec::Raster(10, 5, 3);
+        let spec = BenchmarkArgSpec::Raster(10, 5);
         assert_eq!(spec.sedona_type(), RASTER);
         let data = spec.build_arrays(0, 2, ROWS_PER_BATCH).unwrap();
         assert_eq!(data.len(), 2);
