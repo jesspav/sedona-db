@@ -319,6 +319,13 @@ fn write_raster(
     // Calculate total raster dimensions
     let scale_x = first_metadata.scale_x();
     let scale_y = first_metadata.scale_y();
+
+    if scale_x == 0.0 || scale_y == 0.0 {
+        return Err(ArrowError::InvalidArgumentError(
+            "Invalid geotransform: scale values cannot be zero".to_string(),
+        ));
+    }
+
     let total_width = ((max_x - min_x) / scale_x).abs().round() as usize;
     let total_height = ((max_y - min_y) / scale_y).abs().round() as usize;
 
@@ -351,7 +358,7 @@ fn write_raster(
             driver.create_with_band_type::<f64, _>(filepath, total_width, total_height, band_count)
         }
     }
-    .map_err(|e| ArrowError::ParseError(format!("Failed to create GeoTIFF: {e}")))?;
+    .map_err(|e| ArrowError::ParseError(format!("Failed to create raster dataset: {e}")))?;
 
     // Set geotransform
     dataset
@@ -444,67 +451,85 @@ fn write_band_data(
 ) -> Result<(), ArrowError> {
     use gdal::raster::Buffer;
 
-    let (width, height) = window_size;
-    let pixel_count = width * height;
+    /// Macro to reduce boilerplate for writing typed buffers
+    macro_rules! write_typed_buffer {
+        ($type:ty, $bytes_per_elem:expr) => {{
+            let data = bytes_to_typed_vec::<$type>(band_data, $bytes_per_elem);
+            let mut buffer = Buffer::new(window_size, data);
+            gdal_band.write(window_origin, window_size, &mut buffer)
+        }};
+    }
 
     match data_type {
         BandDataType::UInt8 => {
-            let data: Vec<u8> = band_data.to_vec();
+            // UInt8 is special - no conversion needed
+            let data = band_data.to_vec();
             let mut buffer = Buffer::new(window_size, data);
             gdal_band.write(window_origin, window_size, &mut buffer)
         }
-        BandDataType::UInt16 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(2) {
-                data.push(u16::from_ne_bytes([chunk[0], chunk[1]]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
-        BandDataType::Int16 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(2) {
-                data.push(i16::from_ne_bytes([chunk[0], chunk[1]]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
-        BandDataType::UInt32 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(4) {
-                data.push(u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
-        BandDataType::Int32 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(4) {
-                data.push(i32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
-        BandDataType::Float32 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(4) {
-                data.push(f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
-        BandDataType::Float64 => {
-            let mut data = Vec::with_capacity(pixel_count);
-            for chunk in band_data.chunks_exact(8) {
-                data.push(f64::from_ne_bytes([
-                    chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-                ]));
-            }
-            let mut buffer = Buffer::new(window_size, data);
-            gdal_band.write(window_origin, window_size, &mut buffer)
-        }
+        BandDataType::UInt16 => write_typed_buffer!(u16, 2),
+        BandDataType::Int16 => write_typed_buffer!(i16, 2),
+        BandDataType::UInt32 => write_typed_buffer!(u32, 4),
+        BandDataType::Int32 => write_typed_buffer!(i32, 4),
+        BandDataType::Float32 => write_typed_buffer!(f32, 4),
+        BandDataType::Float64 => write_typed_buffer!(f64, 8),
     }
     .map_err(|e| ArrowError::ParseError(format!("Failed to write band data: {e}")))
+}
+
+/// Helper function to convert byte slices to typed vectors
+/// Uses chunks_exact to safely handle byte conversion without potential panics
+fn bytes_to_typed_vec<T>(bytes: &[u8], element_size: usize) -> Vec<T>
+where
+    T: FromNeBytes,
+{
+    bytes
+        .chunks_exact(element_size)
+        .map(|chunk| T::from_ne_bytes_slice(chunk))
+        .collect()
+}
+
+/// Trait for converting from native-endian byte slices
+trait FromNeBytes: Sized {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self;
+}
+
+impl FromNeBytes for u16 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        u16::from_ne_bytes([bytes[0], bytes[1]])
+    }
+}
+
+impl FromNeBytes for i16 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        i16::from_ne_bytes([bytes[0], bytes[1]])
+    }
+}
+
+impl FromNeBytes for u32 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
+}
+
+impl FromNeBytes for i32 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
+}
+
+impl FromNeBytes for f32 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
+}
+
+impl FromNeBytes for f64 {
+    fn from_ne_bytes_slice(bytes: &[u8]) -> Self {
+        f64::from_ne_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
+    }
 }
 
 /// Convert nodata value bytes back to f64
@@ -515,20 +540,12 @@ fn bytes_to_f64(bytes: &[u8], data_type: BandDataType) -> Option<f64> {
     }
     match data_type {
         BandDataType::UInt8 => Some(bytes[0] as f64),
-        BandDataType::UInt16 => Some(u16::from_ne_bytes([bytes[0], bytes[1]]) as f64),
-        BandDataType::Int16 => Some(i16::from_ne_bytes([bytes[0], bytes[1]]) as f64),
-        BandDataType::UInt32 => {
-            Some(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64)
-        }
-        BandDataType::Int32 => {
-            Some(i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64)
-        }
-        BandDataType::Float32 => {
-            Some(f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64)
-        }
-        BandDataType::Float64 => Some(f64::from_ne_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])),
+        BandDataType::UInt16 => Some(u16::from_ne_bytes_slice(bytes) as f64),
+        BandDataType::Int16 => Some(i16::from_ne_bytes_slice(bytes) as f64),
+        BandDataType::UInt32 => Some(u32::from_ne_bytes_slice(bytes) as f64),
+        BandDataType::Int32 => Some(i32::from_ne_bytes_slice(bytes) as f64),
+        BandDataType::Float32 => Some(f32::from_ne_bytes_slice(bytes) as f64),
+        BandDataType::Float64 => Some(f64::from_ne_bytes_slice(bytes)),
     }
 }
 
@@ -536,6 +553,7 @@ fn bytes_to_f64(bytes: &[u8], data_type: BandDataType) -> Option<f64> {
 mod tests {
     use super::*;
     use arrow::array::Array;
+    use gdal::vsi;
     use rstest::rstest;
     use sedona_raster::array::RasterStructArray;
     use sedona_raster::traits::RasterRef;
@@ -561,16 +579,12 @@ mod tests {
         let raster_struct =
             generate_tiled_rasters(tile_size, tile_count, data_type.clone(), Some(43)).unwrap();
 
-        // Write the raster array to a temporary GeoTIFF file
-        let temp_dir = tempdir().unwrap();
-        let filepath = temp_dir
-            .path()
-            .join(format!("test_raster_output_{:?}.tif", data_type));
-        let filepath_str = filepath.as_os_str().to_str().unwrap();
-        write_geotiff(&raster_struct, filepath_str).unwrap();
+        //
+        let filepath_str = format!("/vsimem/test_raster_output_{:?}.tif", data_type);
+        write_geotiff(&raster_struct, &filepath_str).unwrap();
 
         // Read the rasters back in from the GeoTIFF using the tile metadata
-        let read_raster_struct = read_geotiff(filepath_str, None).unwrap();
+        let read_raster_struct = read_geotiff(&filepath_str, None).unwrap();
         assert_eq!(raster_struct.len(), read_raster_struct.len());
 
         // Compare the original and read rasters for equality
@@ -582,7 +596,7 @@ mod tests {
         let (new_tile_width, new_tile_height) = tile_count; // swapped
         let (new_tile_count_x, new_tile_count_y) = tile_size; // swapped
         let read_raster_array_tiled =
-            read_raster(filepath_str, Some((new_tile_width, new_tile_height))).unwrap();
+            read_raster(&filepath_str, Some((new_tile_width, new_tile_height))).unwrap();
         let raster_retiled_array = RasterStructArray::new(&read_raster_array_tiled);
 
         // Validate the new tiling
@@ -594,15 +608,13 @@ mod tests {
         assert_eq!(metadata.height(), new_tile_height as u64);
 
         // Re-Write the re-tiled raster to a new GeoTIFF
-        let retiled_filepath = temp_dir
-            .path()
-            .join(format!("test_raster_retiled_output_{:?}.tif", data_type));
-        let retiled_filepath_str = retiled_filepath.as_os_str().to_str().unwrap();
-        write_geotiff(&read_raster_array_tiled, retiled_filepath_str).unwrap();
+        let retiled_filepath_str =
+            format!("/vsimem/test_raster_retiled_output_{:?}.tif", data_type);
+        write_geotiff(&read_raster_array_tiled, &retiled_filepath_str).unwrap();
 
         // Re-Read with original tiling parameters
         let read_original_tiling_raster_array =
-            read_geotiff(retiled_filepath_str, Some(tile_size)).unwrap();
+            read_geotiff(&retiled_filepath_str, Some(tile_size)).unwrap();
 
         // Validate that we get back the original raster array
         assert_raster_arrays_equal(
@@ -610,9 +622,34 @@ mod tests {
             &RasterStructArray::new(&read_original_tiling_raster_array),
         );
 
+        // Clean-up
+        vsi::unlink_mem_file(filepath_str).unwrap();
+        vsi::unlink_mem_file(retiled_filepath_str).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    // Unit test for writing to disk. Passes, but marking as ignore due to the
+    // potential issues of writing to disk in unit tests.  Run with `--ignored`
+    fn test_write_geotiff_to_disk() {
+        let temp_dir = tempdir().unwrap();
+        let filepath = temp_dir.path().join("test_raster_output.tif");
+        let filepath_str = filepath.as_os_str().to_str().unwrap();
+
+        let tile_size = (16, 8);
+        let tile_count = (4, 4);
+        let raster_struct =
+            generate_tiled_rasters(tile_size, tile_count, BandDataType::UInt16, Some(43)).unwrap();
+        let result = write_geotiff(&raster_struct, filepath_str);
+        assert!(result.is_ok());
+        let read_raster_struct = read_geotiff(filepath_str, None).unwrap();
+        assert_raster_arrays_equal(
+            &RasterStructArray::new(&raster_struct),
+            &RasterStructArray::new(&read_raster_struct),
+        );
+
         // Clean up
         drop(filepath);
-        drop(retiled_filepath);
         temp_dir.close().unwrap();
     }
 
