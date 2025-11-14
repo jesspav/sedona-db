@@ -4839,6 +4839,7 @@ dependencies = [
  "sedona-geoparquet",
  "sedona-geos",
  "sedona-proj",
+ "sedona-raster-functions",
  "sedona-s2geography",
  "sedona-schema",
  "sedona-spatial-join",
