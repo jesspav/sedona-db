@@ -74,16 +74,13 @@ pub fn generate_test_rasters(
 /// - Each raster has 3 bands which can be interpreted as RGB values
 ///   and the result can be visualized as a mosaic of tiles.
 /// - There are nodata values at the 4 corners of the overall mosaic.
-/// - Note that this function is NOT being careful about ensuring that the
-///   tile widths and heights align perfectly with the provided raster size.
 pub fn generate_tiled_rasters(
-    raster_size: (usize, usize),
     tile_size: (usize, usize),
+    number_of_tiles: (usize, usize),
     data_type: BandDataType,
 ) -> Result<StructArray, ArrowError> {
-    let (width, height) = raster_size;
     let (tile_width, tile_height) = tile_size;
-    let (x_tiles, y_tiles) = (width.div_ceil(tile_width), height.div_ceil(tile_height));
+    let (x_tiles, y_tiles) = number_of_tiles;
     let mut raster_builder = RasterBuilder::new(x_tiles * y_tiles);
     let band_count = 3;
 
@@ -282,50 +279,69 @@ fn get_nodata_value_for_type(data_type: &BandDataType) -> Option<Vec<u8>> {
 }
 
 /// Compare two RasterStructArrays for equality
-/// This compares each raster's metadata and band data for equality
-pub fn raster_arrays_equal(
+pub fn assert_raster_arrays_equal(
     raster_array1: &RasterStructArray,
     raster_array2: &RasterStructArray,
-) -> bool {
-    if raster_array1.len() != raster_array2.len() {
-        return false;
-    }
+) {
+    assert_eq!(
+        raster_array1.len(),
+        raster_array2.len(),
+        "Raster array lengths do not match"
+    );
 
     for i in 0..raster_array1.len() {
         let raster1 = raster_array1.get(i).unwrap();
         let raster2 = raster_array2.get(i).unwrap();
-        if !raster_equal(&raster1, &raster2) {
-            return false;
-        }
+        assert_raster_equal(&raster1, &raster2);
     }
-
-    true
 }
 
 /// Compare two rasters for equality
-/// This compares metadata and band data for equality
-pub fn raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) -> bool {
+pub fn assert_raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) {
     // Compare metadata
     let meta1 = raster1.metadata();
     let meta2 = raster2.metadata();
-    if meta1.width() != meta2.width()
-        || meta1.height() != meta2.height()
-        || meta1.upper_left_x() != meta2.upper_left_x()
-        || meta1.upper_left_y() != meta2.upper_left_y()
-        || meta1.scale_x() != meta2.scale_x()
-        || meta1.scale_y() != meta2.scale_y()
-        || meta1.skew_x() != meta2.skew_x()
-        || meta1.skew_y() != meta2.skew_y()
-    {
-        return false;
-    }
+    assert_eq!(meta1.width(), meta2.width(), "Raster widths do not match");
+    assert_eq!(
+        meta1.height(),
+        meta2.height(),
+        "Raster heights do not match"
+    );
+    assert_eq!(
+        meta1.upper_left_x(),
+        meta2.upper_left_x(),
+        "Raster upper left x does not match"
+    );
+    assert_eq!(
+        meta1.upper_left_y(),
+        meta2.upper_left_y(),
+        "Raster upper left y does not match"
+    );
+    assert_eq!(
+        meta1.scale_x(),
+        meta2.scale_x(),
+        "Raster scale x does not match"
+    );
+    assert_eq!(
+        meta1.scale_y(),
+        meta2.scale_y(),
+        "Raster scale y does not match"
+    );
+    assert_eq!(
+        meta1.skew_x(),
+        meta2.skew_x(),
+        "Raster skew x does not match"
+    );
+    assert_eq!(
+        meta1.skew_y(),
+        meta2.skew_y(),
+        "Raster skew y does not match"
+    );
 
     // Compare bands
     let bands1 = raster1.bands();
     let bands2 = raster2.bands();
-    if bands1.len() != bands2.len() {
-        return false;
-    }
+    assert_eq!(bands1.len(), bands2.len(), "Number of bands do not match");
 
     for band_index in 0..bands1.len() {
         let band1 = bands1.band(band_index + 1).unwrap();
@@ -333,21 +349,34 @@ pub fn raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) -> bool 
 
         let band_meta1 = band1.metadata();
         let band_meta2 = band2.metadata();
-        if band_meta1.data_type() != band_meta2.data_type()
-            || band_meta1.nodata_value() != band_meta2.nodata_value()
-            || band_meta1.storage_type() != band_meta2.storage_type()
-            || band_meta1.outdb_url() != band_meta2.outdb_url()
-            || band_meta1.outdb_band_id() != band_meta2.outdb_band_id()
-        {
-            return false;
-        }
+        assert_eq!(
+            band_meta1.data_type(),
+            band_meta2.data_type(),
+            "Band data types do not match"
+        );
+        assert_eq!(
+            band_meta1.nodata_value(),
+            band_meta2.nodata_value(),
+            "Band nodata values do not match"
+        );
+        assert_eq!(
+            band_meta1.storage_type(),
+            band_meta2.storage_type(),
+            "Band storage types do not match"
+        );
+        assert_eq!(
+            band_meta1.outdb_url(),
+            band_meta2.outdb_url(),
+            "Band outdb URLs do not match"
+        );
+        assert_eq!(
+            band_meta1.outdb_band_id(),
+            band_meta2.outdb_band_id(),
+            "Band outdb band IDs do not match"
+        );
 
-        if band1.data() != band2.data() {
-            return false;
-        }
+        assert_eq!(band1.data(), band2.data(), "Band data do not match");
     }
-
-    true
 }
 
 #[cfg(test)]
@@ -400,10 +429,10 @@ mod tests {
 
     #[test]
     fn test_generate_tiled_rasters() {
-        let raster_size = (256, 256);
         let tile_size = (64, 64);
+        let number_of_tiles = (4, 4);
         let data_type = BandDataType::UInt8;
-        let struct_array = generate_tiled_rasters(raster_size, tile_size, data_type).unwrap();
+        let struct_array = generate_tiled_rasters(tile_size, number_of_tiles, data_type).unwrap();
         let raster_array = RasterStructArray::new(&struct_array);
         assert_eq!(raster_array.len(), 16); // 4x4 tiles
         for i in 0..16 {
@@ -428,38 +457,53 @@ mod tests {
 
     #[test]
     fn test_raster_arrays_equal() {
-        // Generate two identical raster arrays
         let raster_array1 = generate_test_rasters(3, None).unwrap();
-        let raster_array2 = generate_test_rasters(3, None).unwrap();
         let raster_struct_array1 = RasterStructArray::new(&raster_array1);
+        // Test that identical arrays are equal
+        assert_raster_arrays_equal(&raster_struct_array1, &raster_struct_array1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_raster_arrays_not_equal() {
+        let raster_array1 = generate_test_rasters(3, None).unwrap();
+        let raster_struct_array1 = RasterStructArray::new(&raster_array1);
+
+        // Test that arrays with different lengths are not equal
+        let raster_array2 = generate_test_rasters(4, None).unwrap();
         let raster_struct_array2 = RasterStructArray::new(&raster_array2);
-
-        assert!(raster_arrays_equal(
-            &raster_struct_array1,
-            &raster_struct_array2
-        ));
-
-        let raster_array4 = generate_test_rasters(4, None).unwrap();
-        let raster_struct_array4 = RasterStructArray::new(&raster_array4);
-
-        assert!(!raster_arrays_equal(
-            &raster_struct_array1,
-            &raster_struct_array4
-        ));
+        assert_raster_arrays_equal(&raster_struct_array1, &raster_struct_array2);
     }
 
     #[test]
     fn test_raster_equal() {
-        // Generate two 256x256 rasters with a single tile that differ only in pixel values
         let raster_array1 =
-            generate_tiled_rasters((256, 256), (256, 256), BandDataType::UInt8).unwrap();
+            generate_tiled_rasters((256, 256), (1, 1), BandDataType::UInt8).unwrap();
+        let raster1 = RasterStructArray::new(&raster_array1).get(0).unwrap();
+
+        // Assert that the rasters are equal to themselves
+        assert_raster_equal(&raster1, &raster1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_raster_different_band_data() {
+        let raster_array1 =
+            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8).unwrap();
         let raster_array2 =
-            generate_tiled_rasters((256, 256), (256, 256), BandDataType::UInt8).unwrap();
+            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8).unwrap();
 
         let raster1 = RasterStructArray::new(&raster_array1).get(0).unwrap();
-        assert!(raster_equal(&raster1, &raster1));
-
         let raster2 = RasterStructArray::new(&raster_array2).get(0).unwrap();
-        assert!(!raster_equal(&raster1, &raster2));
+        assert_raster_equal(&raster1, &raster2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_raster_different_metadata() {
+        let raster_array = generate_tiled_rasters((128, 128), (2, 1), BandDataType::UInt8).unwrap();
+        let raster1 = RasterStructArray::new(&raster_array).get(0).unwrap();
+        let raster2 = RasterStructArray::new(&raster_array).get(1).unwrap();
+        assert_raster_equal(&raster1, &raster2);
     }
 }
