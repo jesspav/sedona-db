@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 use arrow_array::StructArray;
-use arrow_schema::ArrowError;
+use datafusion_common::Result;
 use sedona_raster::array::RasterStructArray;
 use sedona_raster::builder::RasterBuilder;
 use sedona_raster::traits::{BandMetadata, RasterMetadata, RasterRef};
@@ -26,7 +26,7 @@ use sedona_schema::raster::{BandDataType, StorageType};
 pub fn generate_test_rasters(
     count: usize,
     null_raster_index: Option<usize>,
-) -> Result<StructArray, ArrowError> {
+) -> Result<StructArray> {
     let mut builder = RasterBuilder::new(count);
     for i in 0..count {
         // If a null raster index is specified and that matches the current index,
@@ -66,7 +66,7 @@ pub fn generate_test_rasters(
         builder.finish_raster()?;
     }
 
-    builder.finish()
+    Ok(builder.finish()?)
 }
 
 /// Generates a set of tiled rasters arranged in a grid
@@ -78,7 +78,7 @@ pub fn generate_tiled_rasters(
     tile_size: (usize, usize),
     number_of_tiles: (usize, usize),
     data_type: BandDataType,
-) -> Result<StructArray, ArrowError> {
+) -> Result<StructArray> {
     let (tile_width, tile_height) = tile_size;
     let (x_tiles, y_tiles) = number_of_tiles;
     let mut raster_builder = RasterBuilder::new(x_tiles * y_tiles);
@@ -136,7 +136,7 @@ pub fn generate_tiled_rasters(
         }
     }
 
-    raster_builder.finish()
+    Ok(raster_builder.finish()?)
 }
 
 /// Determine if this tile contains a corner of the overall grid and return its position
