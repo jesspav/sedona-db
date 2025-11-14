@@ -16,6 +16,7 @@
 // under the License.
 use arrow_array::StructArray;
 use datafusion_common::Result;
+use fastrand::Rng;
 use sedona_raster::array::RasterStructArray;
 use sedona_raster::builder::RasterBuilder;
 use sedona_raster::traits::{BandMetadata, RasterMetadata, RasterRef};
@@ -78,7 +79,12 @@ pub fn generate_tiled_rasters(
     tile_size: (usize, usize),
     number_of_tiles: (usize, usize),
     data_type: BandDataType,
+    seed: Option<u64>,
 ) -> Result<StructArray> {
+    let mut rng = match seed {
+        Some(s) => Rng::with_seed(s),
+        None => Rng::new(),
+    };
     let (tile_width, tile_height) = tile_size;
     let (x_tiles, y_tiles) = number_of_tiles;
     let mut raster_builder = RasterBuilder::new(x_tiles * y_tiles);
@@ -126,6 +132,7 @@ pub fn generate_tiled_rasters(
                     &data_type,
                     nodata_value.as_deref(),
                     corner_position,
+                    &mut rng,
                 );
 
                 raster_builder.band_data_writer().append_value(&band_data);
@@ -173,10 +180,11 @@ fn generate_random_band_data(
     data_type: &BandDataType,
     nodata_bytes: Option<&[u8]>,
     corner_position: Option<usize>,
+    rng: &mut Rng,
 ) -> Vec<u8> {
     match data_type {
         BandDataType::UInt8 => {
-            let mut data: Vec<u8> = (0..pixel_count).map(|_| fastrand::u8(..)).collect();
+            let mut data: Vec<u8> = (0..pixel_count).map(|_| rng.u8(..)).collect();
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
                 if !nodata.is_empty() && pos < data.len() {
@@ -188,7 +196,7 @@ fn generate_random_band_data(
         BandDataType::UInt16 => {
             let mut data = Vec::with_capacity(pixel_count * 2);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::u16(..).to_ne_bytes());
+                data.extend_from_slice(&rng.u16(..).to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -201,7 +209,7 @@ fn generate_random_band_data(
         BandDataType::Int16 => {
             let mut data = Vec::with_capacity(pixel_count * 2);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::i16(..).to_ne_bytes());
+                data.extend_from_slice(&rng.i16(..).to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -214,7 +222,7 @@ fn generate_random_band_data(
         BandDataType::UInt32 => {
             let mut data = Vec::with_capacity(pixel_count * 4);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::u32(..).to_ne_bytes());
+                data.extend_from_slice(&rng.u32(..).to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -227,7 +235,7 @@ fn generate_random_band_data(
         BandDataType::Int32 => {
             let mut data = Vec::with_capacity(pixel_count * 4);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::i32(..).to_ne_bytes());
+                data.extend_from_slice(&rng.i32(..).to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -240,7 +248,7 @@ fn generate_random_band_data(
         BandDataType::Float32 => {
             let mut data = Vec::with_capacity(pixel_count * 4);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::f32().to_ne_bytes());
+                data.extend_from_slice(&rng.f32().to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -253,7 +261,7 @@ fn generate_random_band_data(
         BandDataType::Float64 => {
             let mut data = Vec::with_capacity(pixel_count * 8);
             for _ in 0..pixel_count {
-                data.extend_from_slice(&fastrand::f64().to_ne_bytes());
+                data.extend_from_slice(&rng.f64().to_ne_bytes());
             }
             // Set corner pixel to nodata value if this tile contains a corner
             if let (Some(nodata), Some(pos)) = (nodata_bytes, corner_position) {
@@ -375,7 +383,7 @@ pub fn assert_raster_equal(raster1: &impl RasterRef, raster2: &impl RasterRef) {
             "Band outdb band IDs do not match"
         );
 
-        assert_eq!(band1.data(), band2.data(), "Band data do not match");
+        assert_eq!(band1.data(), band2.data(), "Band data does not match");
     }
 }
 
@@ -432,7 +440,8 @@ mod tests {
         let tile_size = (64, 64);
         let number_of_tiles = (4, 4);
         let data_type = BandDataType::UInt8;
-        let struct_array = generate_tiled_rasters(tile_size, number_of_tiles, data_type).unwrap();
+        let struct_array =
+            generate_tiled_rasters(tile_size, number_of_tiles, data_type, Some(43)).unwrap();
         let raster_array = RasterStructArray::new(&struct_array);
         assert_eq!(raster_array.len(), 16); // 4x4 tiles
         for i in 0..16 {
@@ -464,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic = "Raster array lengths do not match"]
     fn test_raster_arrays_not_equal() {
         let raster_array1 = generate_test_rasters(3, None).unwrap();
         let raster_struct_array1 = RasterStructArray::new(&raster_array1);
@@ -478,7 +487,7 @@ mod tests {
     #[test]
     fn test_raster_equal() {
         let raster_array1 =
-            generate_tiled_rasters((256, 256), (1, 1), BandDataType::UInt8).unwrap();
+            generate_tiled_rasters((256, 256), (1, 1), BandDataType::UInt8, Some(43)).unwrap();
         let raster1 = RasterStructArray::new(&raster_array1).get(0).unwrap();
 
         // Assert that the rasters are equal to themselves
@@ -486,12 +495,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic = "Band data does not match"]
     fn test_raster_different_band_data() {
         let raster_array1 =
-            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8).unwrap();
+            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8, Some(43)).unwrap();
         let raster_array2 =
-            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8).unwrap();
+            generate_tiled_rasters((128, 128), (1, 1), BandDataType::UInt8, Some(47)).unwrap();
 
         let raster1 = RasterStructArray::new(&raster_array1).get(0).unwrap();
         let raster2 = RasterStructArray::new(&raster_array2).get(0).unwrap();
@@ -499,9 +508,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic = "Raster upper left x does not match"]
     fn test_raster_different_metadata() {
-        let raster_array = generate_tiled_rasters((128, 128), (2, 1), BandDataType::UInt8).unwrap();
+        let raster_array =
+            generate_tiled_rasters((128, 128), (2, 1), BandDataType::UInt8, Some(43)).unwrap();
         let raster1 = RasterStructArray::new(&raster_array).get(0).unwrap();
         let raster2 = RasterStructArray::new(&raster_array).get(1).unwrap();
         assert_raster_equal(&raster1, &raster2);
