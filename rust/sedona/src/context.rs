@@ -125,6 +125,9 @@ impl SedonaContext {
         // Always register default function set
         out.register_function_set(sedona_functions::register::default_function_set());
 
+        // Always register raster function set
+        out.register_function_set(sedona_raster_functions::register::default_function_set());
+
         // Register geos scalar kernels if built with geos support
         #[cfg(feature = "geos")]
         out.register_scalar_kernels(sedona_geos::register::scalar_kernels().into_iter())?;

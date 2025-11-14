@@ -65,6 +65,7 @@ parking_lot = { workspace = true }
 sedona-common = { path = "../sedona-common" }
 sedona-expr = { path = "../sedona-expr" }
 sedona-functions = { path = "../sedona-functions" }
+sedona-raster-functions = { path = "../sedona-raster-functions" }
 sedona-geo = { path = "../sedona-geo", optional = true }
 sedona-geometry = { path = "../sedona-geometry" }
 sedona-geoparquet = { path = "../sedona-geoparquet" }
