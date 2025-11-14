@@ -37,9 +37,10 @@ pub fn default_function_set() -> FunctionSet {
     }
 
     register_scalar_udfs!(
-        function_set, 
+        function_set,
         crate::rs_size::rs_width_udf,
-    crate::rs_size::rs_height_udf,);
+        crate::rs_size::rs_height_udf,
+    );
 
     register_aggregate_udfs!(function_set,);
 
