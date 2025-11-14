@@ -115,7 +115,6 @@ mod tests {
     use datafusion_expr::ScalarUDF;
     use sedona_raster::array::RasterStructArray;
     use sedona_raster::traits::RasterRef;
-    use sedona_schema::datatypes::RASTER;
 
     #[test]
     fn udf_size() {
@@ -128,7 +127,7 @@ mod tests {
     fn udf_invoke() {
         let kernel = RsExample {};
         let args = [];
-        let arg_types = vec![RASTER];
+        let arg_types = vec![];
 
         let result = kernel.invoke_batch(&arg_types, &args).unwrap();
         if let ColumnarValue::Scalar(ScalarValue::Struct(arc_struct)) = result {
