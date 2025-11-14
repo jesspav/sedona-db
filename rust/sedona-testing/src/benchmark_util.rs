@@ -405,12 +405,13 @@ impl BenchmarkArgSpec {
                 for _ in 0..num_batches {
                     // Total size will be divided by tile size to create
                     // rows_per_batch rasters
-                    let ttl_raster_size = (*width*rows_per_batch as usize, *height as usize);
                     let tile_size = (*width, *height);
+                    let tile_count = (rows_per_batch, 1);
                     let raster = generate_tiled_rasters(
-                        ttl_raster_size,
                         tile_size,
-                        BandDataType::UInt8
+                        tile_count,
+                        BandDataType::UInt8,
+                        Some(43),
                     )?;
                     arrays.push(Arc::new(raster) as ArrayRef);
                 }
