@@ -37,4 +37,7 @@ sedona-common = { path = "../sedona-common" }
 sedona-expr = { path = "../sedona-expr" }
 sedona-raster = { path = "../sedona-raster" }
 sedona-schema = { path = "../sedona-schema" }
+
+[dev-dependencies]
+rstest = { workspace = true }
 sedona-testing = { path = "../sedona-testing" }
