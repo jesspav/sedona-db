@@ -70,7 +70,7 @@ sedona-geometry = { path = "../sedona-geometry" }
 sedona-geoparquet = { path = "../sedona-geoparquet" }
 sedona-geos = { path = "../../c/sedona-geos", optional = true }
 sedona-proj = { path = "../../c/sedona-proj", default-features = false }
-sedona-raster-functions = { path = "../../rust/sedona-raster-functions", default-features = true }
+sedona-raster-functions = { path = "../../rust/sedona-raster-functions" }
 sedona-schema = { path = "../sedona-schema" }
 sedona-spatial-join = { path = "../sedona-spatial-join", optional = true }
 sedona-s2geography = { path = "../../c/sedona-s2geography", optional = true }
