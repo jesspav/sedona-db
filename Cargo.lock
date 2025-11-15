@@ -5161,6 +5161,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "criterion",
  "datafusion-common",
  "datafusion-expr",
  "rstest",

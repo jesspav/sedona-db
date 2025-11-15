@@ -14,35 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-use sedona_expr::function_set::FunctionSet;
+use criterion::{criterion_group, criterion_main, Criterion};
+use sedona_testing::benchmark_util::{benchmark, BenchmarkArgSpec::*};
 
-/// Export the set of functions defined in this crate
-pub fn default_function_set() -> FunctionSet {
-    let mut function_set = FunctionSet::new();
+fn criterion_benchmark(c: &mut Criterion) {
+    let f = sedona_raster_functions::register::default_function_set();
 
-    macro_rules! register_scalar_udfs {
-        ($function_set:expr, $($udf:expr),* $(,)?) => {
-            $(
-                $function_set.insert_scalar_udf($udf());
-            )*
-        };
-    }
-
-    macro_rules! register_aggregate_udfs {
-        ($function_set:expr, $($udf:expr),* $(,)?) => {
-            $(
-                $function_set.insert_aggregate_udf($udf());
-            )*
-        };
-    }
-
-    register_scalar_udfs!(
-        function_set,
-        crate::rs_size::rs_width_udf,
-        crate::rs_example::rs_example_udf,
-    );
-
-    register_aggregate_udfs!(function_set,);
-
-    function_set
+    benchmark::scalar(c, &f, "native", "rs_width", Raster(64, 64));
 }
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
