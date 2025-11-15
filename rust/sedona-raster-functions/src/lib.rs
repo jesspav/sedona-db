@@ -17,4 +17,5 @@
 
 mod executor;
 pub mod register;
+pub mod rs_geotransform;
 pub mod rs_size;

@@ -5163,6 +5163,7 @@ dependencies = [
  "arrow-schema",
  "datafusion-common",
  "datafusion-expr",
+ "rstest",
  "sedona-common",
  "sedona-expr",
  "sedona-raster",
