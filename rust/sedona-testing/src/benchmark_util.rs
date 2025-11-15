@@ -403,8 +403,6 @@ impl BenchmarkArgSpec {
             BenchmarkArgSpec::Raster(width, height) => {
                 let mut arrays = vec![];
                 for _ in 0..num_batches {
-                    // Total size will be divided by tile size to create
-                    // rows_per_batch rasters
                     let tile_size = (*width, *height);
                     let tile_count = (rows_per_batch, 1);
                     let raster = generate_tiled_rasters(
