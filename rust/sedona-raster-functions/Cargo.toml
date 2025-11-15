@@ -39,5 +39,9 @@ sedona-raster = { path = "../sedona-raster" }
 sedona-schema = { path = "../sedona-schema" }
 
 [dev-dependencies]
-rstest = { workspace = true }
-sedona-testing = { path = "../sedona-testing" }
+criterion = { workspace = true }
+sedona-testing = { path = "../sedona-testing", features = ["criterion"] }
+
+[[bench]]
+harness = false
+name = "native-raster-functions"
