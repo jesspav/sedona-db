@@ -33,9 +33,25 @@ use sedona_schema::{datatypes::SedonaType, matchers::ArgMatcher};
 pub fn rs_width_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_width",
-        vec![Arc::new(RsWidth {})],
+        vec![Arc::new(RsSize {
+            size_type: SizeType::Width,
+        })],
         Volatility::Immutable,
         Some(rs_width_doc()),
+    )
+}
+
+/// RS_Height() scalar UDF documentation
+///
+/// Extract the height of the raster
+pub fn rs_height_udf() -> SedonaScalarUDF {
+    SedonaScalarUDF::new(
+        "rs_height",
+        vec![Arc::new(RsSize {
+            size_type: SizeType::Height,
+        })],
+        Volatility::Immutable,
+        Some(rs_height_doc()),
     )
 }
 
@@ -50,10 +66,29 @@ fn rs_width_doc() -> Documentation {
     .build()
 }
 
-#[derive(Debug)]
-struct RsWidth {}
+fn rs_height_doc() -> Documentation {
+    Documentation::builder(
+        DOC_SECTION_OTHER,
+        "Return the height component of a raster".to_string(),
+        "RS_Height(raster: Raster)".to_string(),
+    )
+    .with_argument("raster", "Raster: Input raster")
+    .with_sql_example("SELECT RS_Height(raster)".to_string())
+    .build()
+}
 
-impl SedonaScalarKernel for RsWidth {
+#[derive(Debug, Clone)]
+enum SizeType {
+    Width,
+    Height,
+}
+
+#[derive(Debug)]
+struct RsSize {
+    size_type: SizeType,
+}
+
+impl SedonaScalarKernel for RsSize {
     fn return_type(&self, args: &[SedonaType]) -> Result<Option<SedonaType>> {
         let matcher = ArgMatcher::new(
             vec![ArgMatcher::is_raster()],
@@ -74,10 +109,16 @@ impl SedonaScalarKernel for RsWidth {
         executor.execute_raster_void(|_i, raster_opt| {
             match raster_opt {
                 None => builder.append_null(),
-                Some(raster) => {
-                    let width = raster.metadata().width();
-                    builder.append_value(width);
-                }
+                Some(raster) => match self.size_type {
+                    SizeType::Width => {
+                        let width = raster.metadata().width();
+                        builder.append_value(width);
+                    }
+                    SizeType::Height => {
+                        let height = raster.metadata().height();
+                        builder.append_value(height);
+                    }
+                },
             }
             Ok(())
         })?;
@@ -91,6 +132,7 @@ mod tests {
     use super::*;
     use arrow_array::{Array, UInt64Array};
     use datafusion_expr::ScalarUDF;
+    use rstest::rstest;
     use sedona_schema::datatypes::RASTER;
     use sedona_testing::rasters::generate_test_rasters;
 
@@ -99,15 +141,21 @@ mod tests {
         let udf: ScalarUDF = rs_width_udf().into();
         assert_eq!(udf.name(), "rs_width");
         assert!(udf.documentation().is_some());
+
+        let udf: ScalarUDF = rs_height_udf().into();
+        assert_eq!(udf.name(), "rs_height");
+        assert!(udf.documentation().is_some());
     }
 
-    #[test]
-    fn udf_invoke() {
+    #[rstest]
+    fn udf_invoke(#[values(SizeType::Width, SizeType::Height)] st: SizeType) {
+        let kernel = RsSize {
+            size_type: st.clone(),
+        };
         // 3 rasters, second one is null
         let rasters = generate_test_rasters(3, Some(1)).unwrap();
 
         // Create the UDF and invoke it
-        let kernel = RsWidth {};
         let args = [ColumnarValue::Array(Arc::new(rasters))];
         let arg_types = vec![RASTER];
 
@@ -115,12 +163,19 @@ mod tests {
 
         // Check the result
         if let ColumnarValue::Array(result_array) = result {
-            let width_array = result_array.as_any().downcast_ref::<UInt64Array>().unwrap();
+            let size_array = result_array.as_any().downcast_ref::<UInt64Array>().unwrap();
 
-            assert_eq!(width_array.len(), 3);
-            assert_eq!(width_array.value(0), 1); // First raster width
-            assert!(width_array.is_null(1)); // Second raster is null
-            assert_eq!(width_array.value(2), 3); // Third raster width
+            assert_eq!(size_array.len(), 3);
+
+            match st.clone() {
+                SizeType::Width => assert_eq!(size_array.value(0), 1), // First raster width
+                SizeType::Height => assert_eq!(size_array.value(0), 2), // First raster height
+            }
+            assert!(size_array.is_null(1)); // Second raster is null
+            match st.clone() {
+                SizeType::Width => assert_eq!(size_array.value(2), 3), // Third raster width
+                SizeType::Height => assert_eq!(size_array.value(2), 4), // Third raster height
+            }
         } else {
             panic!("Expected array result");
         }
