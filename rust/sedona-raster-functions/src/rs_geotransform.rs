@@ -59,8 +59,8 @@ pub fn rs_upperlefty_udf() -> SedonaScalarUDF {
 
 /// RS_ScaleX() scalar UDF implementation
 ///
-/// Extract the raster's upper left corner's
-/// X coordinate
+/// Extract the raster's pixel width or scale parameter
+/// in the X direction
 pub fn rs_scalex_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_scalex",
@@ -74,8 +74,8 @@ pub fn rs_scalex_udf() -> SedonaScalarUDF {
 
 /// RS_ScaleY() scalar UDF implementation
 ///
-/// Extract the raster's upper left corner's
-/// Y coordinate
+/// Extract the raster's pixel height or scale
+/// parameter in the Y direction
 pub fn rs_scaley_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_scaley",
@@ -89,8 +89,8 @@ pub fn rs_scaley_udf() -> SedonaScalarUDF {
 
 /// RS_SkewX() scalar UDF implementation
 ///
-/// Extract the raster's upper left corner's
-/// X coordinate
+/// Extract the raster's X skew (rotation) parameter
+/// from the geotransform
 pub fn rs_skewx_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_skewx",
@@ -104,8 +104,8 @@ pub fn rs_skewx_udf() -> SedonaScalarUDF {
 
 /// RS_SkewY() scalar UDF implementation
 ///
-/// Extract the raster's upper left corner's
-/// Y coordinate
+/// Extract the raster's Y skew (rotation) parameter
+/// from the geotransform.
 pub fn rs_skewy_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_skewy",
@@ -142,7 +142,7 @@ fn rs_upperlefty_doc() -> Documentation {
 fn rs_scalex_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
-        "Returns the X coordinate of the upper-left corner of the raster in CRS units.".to_string(),
+        "Returns the pixel width of the raster in CRS units.".to_string(),
         "RS_ScaleX(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
