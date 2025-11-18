@@ -124,7 +124,7 @@ fn rs_upperleftx_doc() -> Documentation {
         "RS_UpperLeftX(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_UpperLeftX(raster)".to_string())
+    .with_sql_example("SELECT RS_UpperLeftX(RS_Example())".to_string())
     .build()
 }
 
@@ -135,7 +135,7 @@ fn rs_upperlefty_doc() -> Documentation {
         "RS_UpperLeftY(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_UpperLeftY(raster)".to_string())
+    .with_sql_example("SELECT RS_UpperLeftY(RS_Example())".to_string())
     .build()
 }
 
@@ -146,7 +146,7 @@ fn rs_scalex_doc() -> Documentation {
         "RS_ScaleX(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_ScaleX(raster)".to_string())
+    .with_sql_example("SELECT RS_ScaleX(RS_Example())".to_string())
     .build()
 }
 
@@ -157,7 +157,7 @@ fn rs_scaley_doc() -> Documentation {
         "RS_ScaleY(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_ScaleY(raster)".to_string())
+    .with_sql_example("SELECT RS_ScaleY(RS_Example())".to_string())
     .build()
 }
 
@@ -168,7 +168,7 @@ fn rs_skewx_doc() -> Documentation {
         "RS_SkewX(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_SkewX(raster)".to_string())
+    .with_sql_example("SELECT RS_SkewX(RS_Example())".to_string())
     .build()
 }
 
@@ -179,18 +179,18 @@ fn rs_skewy_doc() -> Documentation {
         "RS_SkewY(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_sql_example("SELECT RS_SkewY(raster)".to_string())
+    .with_sql_example("SELECT RS_SkewY(RS_Example())".to_string())
     .build()
 }
 
 #[derive(Debug, Clone)]
 enum GeoTransformParam {
-    UpperLeftX,
-    UpperLeftY,
     ScaleX,
     ScaleY,
     SkewX,
     SkewY,
+    UpperLeftX,
+    UpperLeftY,
 }
 
 #[derive(Debug)]
@@ -222,16 +222,16 @@ impl SedonaScalarKernel for RsGeoTransform {
                 Some(raster) => {
                     let metadata = raster.metadata();
                     match self.param {
+                        GeoTransformParam::ScaleX => builder.append_value(metadata.scale_x()),
+                        GeoTransformParam::ScaleY => builder.append_value(metadata.scale_y()),
+                        GeoTransformParam::SkewX => builder.append_value(metadata.skew_x()),
+                        GeoTransformParam::SkewY => builder.append_value(metadata.skew_y()),
                         GeoTransformParam::UpperLeftX => {
                             builder.append_value(metadata.upper_left_x())
                         }
                         GeoTransformParam::UpperLeftY => {
                             builder.append_value(metadata.upper_left_y())
                         }
-                        GeoTransformParam::ScaleX => builder.append_value(metadata.scale_x()),
-                        GeoTransformParam::ScaleY => builder.append_value(metadata.scale_y()),
-                        GeoTransformParam::SkewX => builder.append_value(metadata.skew_x()),
-                        GeoTransformParam::SkewY => builder.append_value(metadata.skew_y()),
                     }
                 }
             }
@@ -245,14 +245,32 @@ impl SedonaScalarKernel for RsGeoTransform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::{Array, Float64Array};
+    use arrow_array::Float64Array;
     use datafusion_expr::ScalarUDF;
     use rstest::rstest;
     use sedona_schema::datatypes::RASTER;
+    use sedona_testing::compare::assert_array_equal;
     use sedona_testing::rasters::generate_test_rasters;
+    use sedona_testing::testers::ScalarUdfTester;
 
     #[test]
     fn udf_size() {
+        let udf: ScalarUDF = rs_scalex_udf().into();
+        assert_eq!(udf.name(), "rs_scalex");
+        assert!(udf.documentation().is_some());
+
+        let udf: ScalarUDF = rs_scaley_udf().into();
+        assert_eq!(udf.name(), "rs_scaley");
+        assert!(udf.documentation().is_some());
+
+        let udf: ScalarUDF = rs_skewx_udf().into();
+        assert_eq!(udf.name(), "rs_skewx");
+        assert!(udf.documentation().is_some());
+
+        let udf: ScalarUDF = rs_skewy_udf().into();
+        assert_eq!(udf.name(), "rs_skewy");
+        assert!(udf.documentation().is_some());
+
         let udf: ScalarUDF = rs_upperleftx_udf().into();
         assert_eq!(udf.name(), "rs_upperleftx");
         assert!(udf.documentation().is_some());
@@ -265,53 +283,38 @@ mod tests {
     #[rstest]
     fn udf_invoke(
         #[values(
-            GeoTransformParam::UpperLeftX,
-            GeoTransformParam::UpperLeftY,
             GeoTransformParam::ScaleX,
             GeoTransformParam::ScaleY,
             GeoTransformParam::SkewX,
-            GeoTransformParam::SkewY
+            GeoTransformParam::SkewY,
+            GeoTransformParam::UpperLeftX,
+            GeoTransformParam::UpperLeftY
         )]
         g: GeoTransformParam,
     ) {
-        let kernel = RsGeoTransform { param: g.clone() };
-        // 3 rasters, second one is null
+        let udf = match g {
+            GeoTransformParam::ScaleX => rs_scalex_udf(),
+            GeoTransformParam::ScaleY => rs_scaley_udf(),
+            GeoTransformParam::SkewX => rs_skewx_udf(),
+            GeoTransformParam::SkewY => rs_skewy_udf(),
+            GeoTransformParam::UpperLeftX => rs_upperleftx_udf(),
+            GeoTransformParam::UpperLeftY => rs_upperlefty_udf(),
+        };
+        let tester = ScalarUdfTester::new(udf.into(), vec![RASTER]);
+
         let rasters = generate_test_rasters(3, Some(1)).unwrap();
+        let expected_values = match g {
+            GeoTransformParam::ScaleX => vec![Some(0.0), None, Some(0.2)],
+            GeoTransformParam::ScaleY => vec![Some(0.0), None, Some(0.4)],
+            GeoTransformParam::SkewX => vec![Some(0.0), None, Some(0.6)],
+            GeoTransformParam::SkewY => vec![Some(0.0), None, Some(0.8)],
+            GeoTransformParam::UpperLeftX => vec![Some(1.0), None, Some(3.0)],
+            GeoTransformParam::UpperLeftY => vec![Some(2.0), None, Some(4.0)],
+        };
 
-        // Create the UDF and invoke it
-        let args = [ColumnarValue::Array(Arc::new(rasters))];
-        let arg_types = vec![RASTER];
+        let expected: Arc<dyn arrow_array::Array> = Arc::new(Float64Array::from(expected_values));
 
-        let result = kernel.invoke_batch(&arg_types, &args).unwrap();
-
-        // Check the result
-        if let ColumnarValue::Array(result_array) = result {
-            let array = result_array
-                .as_any()
-                .downcast_ref::<Float64Array>()
-                .unwrap();
-
-            assert_eq!(array.len(), 3);
-
-            match g.clone() {
-                GeoTransformParam::UpperLeftX => assert_eq!(array.value(0), 1.0),
-                GeoTransformParam::UpperLeftY => assert_eq!(array.value(0), 2.0),
-                GeoTransformParam::ScaleX => assert_eq!(array.value(0), 0.0),
-                GeoTransformParam::ScaleY => assert_eq!(array.value(0), 0.0),
-                GeoTransformParam::SkewX => assert_eq!(array.value(0), 0.0),
-                GeoTransformParam::SkewY => assert_eq!(array.value(0), 0.0),
-            }
-            assert!(array.is_null(1)); // Second raster is null
-            match g.clone() {
-                GeoTransformParam::UpperLeftX => assert_eq!(array.value(2), 3.0),
-                GeoTransformParam::UpperLeftY => assert_eq!(array.value(2), 4.0),
-                GeoTransformParam::ScaleX => assert_eq!(array.value(2), 0.2),
-                GeoTransformParam::ScaleY => assert_eq!(array.value(2), 0.4),
-                GeoTransformParam::SkewX => assert_eq!(array.value(2), 0.6),
-                GeoTransformParam::SkewY => assert_eq!(array.value(2), 0.8),
-            }
-        } else {
-            panic!("Expected array result");
-        }
+        let result = tester.invoke_array(Arc::new(rasters)).unwrap();
+        assert_array_equal(&result, &expected);
     }
 }
