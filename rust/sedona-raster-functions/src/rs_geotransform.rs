@@ -1,4 +1,4 @@
-// Licensed to the Apache Software Foundatio//pub fn rs_upperleftx_udf() -> SedonaScapub fn rs_scalex_udf() pub fn rs_scaley_udf() -pub fn rs_skewx_udf() ->pub fn rs_skewy_udf() -> SedonaScalarUDF {
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -254,7 +254,7 @@ mod tests {
     use sedona_testing::testers::ScalarUdfTester;
 
     #[test]
-    fn udf_size() {
+    fn udf_info() {
         let udf: ScalarUDF = rs_scalex_udf().into();
         assert_eq!(udf.name(), "rs_scalex");
         assert!(udf.documentation().is_some());
