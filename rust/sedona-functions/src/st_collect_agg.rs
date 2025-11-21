@@ -313,7 +313,8 @@ mod test {
 
     #[rstest]
     fn udf(#[values(WKB_GEOMETRY, WKB_VIEW_GEOMETRY)] sedona_type: SedonaType) {
-        let tester = AggregateUdfTester::new(st_collect_agg_udf().into(), vec![sedona_type.clone()]);
+        let tester =
+            AggregateUdfTester::new(st_collect_agg_udf().into(), vec![sedona_type.clone()]);
         assert_eq!(tester.return_type().unwrap(), WKB_GEOMETRY);
 
         // Finite point input with nulls
