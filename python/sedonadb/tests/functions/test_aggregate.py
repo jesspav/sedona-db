@@ -118,6 +118,7 @@ def test_st_collect_all_null(eng):
 @pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
 def test_st_collect_zero_input(eng):
     eng = eng.create_or_skip()
+    suffix = agg_fn_suffix(eng)
     eng.assert_query_result(
         f"""SELECT ST_Collect{suffix}(ST_GeomFromText(geom)) AS empty FROM (
             VALUES
