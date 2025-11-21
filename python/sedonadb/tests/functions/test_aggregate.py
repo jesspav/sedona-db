@@ -28,7 +28,7 @@ def polygonize_fn_suffix(eng):
 def test_st_collect_points(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(ST_GeomFromText(geom)) FROM (
+        """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) FROM (
             VALUES
                 ('POINT (1 2)'),
                 ('POINT (3 4)'),
@@ -42,7 +42,7 @@ def test_st_collect_points(eng):
 def test_st_collect_linestrings(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(ST_GeomFromText(geom)) FROM (
+        """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) FROM (
             VALUES
                 ('LINESTRING (1 2, 3 4)'),
                 ('LINESTRING (5 6, 7 8)'),
@@ -56,7 +56,7 @@ def test_st_collect_linestrings(eng):
 def test_st_collect_polygons(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(ST_GeomFromText(geom)) FROM (
+        """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) FROM (
             VALUES
                 ('POLYGON ((0 0, 1 0, 0 1, 0 0))'),
                 ('POLYGON ((10 10, 11 10, 10 11, 10 10))'),
@@ -70,7 +70,7 @@ def test_st_collect_polygons(eng):
 def test_st_collect_mixed_types(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(ST_GeomFromText(geom)) FROM (
+        """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) FROM (
             VALUES
                 ('POINT (1 2)'),
                 ('LINESTRING (3 4, 5 6)'),
@@ -86,7 +86,7 @@ def test_st_collect_mixed_dimensions(eng):
 
     with pytest.raises(Exception, match="mixed dimension geometries"):
         eng.assert_query_result(
-            """SELECT ST_Collect(ST_GeomFromText(geom)) FROM (
+            """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) FROM (
                 VALUES
                     ('POINT (1 2)'),
                     ('POINT Z (3 4 5)'),
@@ -100,7 +100,7 @@ def test_st_collect_mixed_dimensions(eng):
 def test_st_collect_all_null(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(geom) FROM (
+        """SELECT ST_Collect_Agg(geom) FROM (
             VALUES
                 (NULL),
                 (NULL),
@@ -114,7 +114,7 @@ def test_st_collect_all_null(eng):
 def test_st_collect_zero_input(eng):
     eng = eng.create_or_skip()
     eng.assert_query_result(
-        """SELECT ST_Collect(ST_GeomFromText(geom)) AS empty FROM (
+        """SELECT ST_Collect_Agg(ST_GeomFromText(geom)) AS empty FROM (
             VALUES
                 ('POINT (1 2)')
         ) AS t(geom) WHERE false""",
