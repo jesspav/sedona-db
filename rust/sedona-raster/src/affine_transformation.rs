@@ -15,44 +15,101 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::traits::{
-    MetadataRef,
-};
+use arrow_schema::ArrowError;
 
-pub fn to_world_coordinate_x(raster: &RasterRef, x: int, y: int) -> Result<f64, ArrowError> {
-    let metadata = raster->metadata();
-    if x > width || y > height {
-        return Err(:)
+use crate::traits::RasterRef;
+
+/// Performs an affine transformation on the provided x and y coordinates based on the geotransform
+/// data in the raster.
+///
+/// # Arguments
+/// * `raster` - Reference to the raster containing metadata
+/// * `x` - X coordinate in pixel space (column)
+/// * `y` - Y coordinate in pixel space (row)
+pub fn to_world_coordinate(
+    raster: &dyn RasterRef,
+    x: u64,
+    y: u64,
+) -> Result<(f64, f64), ArrowError> {
+    let metadata = raster.metadata();
+    let width = metadata.width();
+    let height = metadata.height();
+
+    if x >= width || y >= height {
+        return Err(ArrowError::InvalidArgumentError(format!(
+            "Coordinates ({}, {}) are out of bounds ({}x{})",
+            x, y, width, height
+        )));
     }
-    return affine_transform_x(metadata, x, y)
-}
 
-pub fn to_world_coordinate_y(raster: &RasterRef, x: int, y: int) -> f64 {
-    let metadata = raster->metadata();
-    return affine_transform_y(metadata, x, y);
-}
+    let x_f64 = x as f64;
+    let y_f64 = y as f64;
 
-fn affine_transform_x(metadata: &MetadataRef, x: int, y: int) -> f64 {
-    return metadata->upper_left_x + x * metadata->scale_x + y * metadata->skew_y
-}
+    let world_x = metadata.upper_left_x() + x_f64 * metadata.scale_x() + y_f64 * metadata.skew_x();
+    let world_y = metadata.upper_left_y() + x_f64 * metadata.skew_y() + y_f64 * metadata.scale_y();
 
-fn affine_transform_y(metadata: &MetadataRef, x: int, y: int) -> f64 {
-    return metadata->upper_left_y + x * metadata->skew_y + y * metadata->scale_y;
+    Ok((world_x, world_y))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::traits::{MetadataRef, RasterMetadata};
+
+    struct TestRaster {
+        metadata: RasterMetadata,
+    }
+
+    impl RasterRef for TestRaster {
+        fn metadata(&self) -> &dyn MetadataRef {
+            &self.metadata
+        }
+        fn crs(&self) -> Option<&str> {
+            None
+        }
+        fn bands(&self) -> &dyn crate::traits::BandsRef {
+            unimplemented!()
+        }
+    }
+
     #[test]
-    fn test_to_world_coordinate_x() {
-        let metadata = RasterMetadata {
-            width: 10,
-            height: 10,
-            upperleft_x: 0.0,
-            upperleft_y: 0.0,
-            scale_x: 1.0,
-            scale_y: -1.0,
-            skew_x: 0.0,
-            skew_y: 0.0,
+    fn test_to_world_coordinate_basic() {
+        // Test case with rotation/skew
+        let raster = TestRaster {
+            metadata: RasterMetadata {
+                width: 10,
+                height: 20,
+                upperleft_x: 100.0,
+                upperleft_y: 200.0,
+                scale_x: 1.0,
+                scale_y: -2.0,
+                skew_x: 0.25,
+                skew_y: 0.5,
+            },
         };
+
+        let (wx, wy) = to_world_coordinate(&raster, 0, 0).unwrap();
+        assert_eq!((wx, wy), (100.0, 200.0));
+
+        let (wx, wy) = to_world_coordinate(&raster, 5, 10).unwrap();
+        assert_eq!((wx, wy), (107.5, 182.5));
+
+        let (wx, wy) = to_world_coordinate(&raster, 9, 19).unwrap();
+        assert_eq!((wx, wy), (113.75, 166.5));
+
+        let (wx, wy) = to_world_coordinate(&raster, 1, 0).unwrap();
+        assert_eq!((wx, wy), (101.0, 200.5));
+
+        let (wx, wy) = to_world_coordinate(&raster, 0, 1).unwrap();
+        assert_eq!((wx, wy), (100.25, 198.0));
+
+        // Test bounds
+        let result = to_world_coordinate(&raster, 10, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
+
+        let result = to_world_coordinate(&raster, 0, 20);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("out of bounds"));
     }
 }
