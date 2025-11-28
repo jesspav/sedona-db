@@ -60,7 +60,7 @@ fn rs_rastertoworldcoordy_doc() -> Documentation {
     .with_argument("raster", "Raster: Input raster")
     .with_argument("x", "Integer: Column x into the raster")
     .with_argument("y", "Integer: Row y into the raster")
-    .with_sql_example("SELECT RS_RasterToWorldCoordY(RS_Example(), 1, 1)".to_string())
+    .with_sql_example("SELECT RS_RasterToWorldCoordY(RS_Example(), 0, 0)".to_string())
     .build()
 }
 
@@ -73,7 +73,7 @@ fn rs_rastertoworldcoordx_doc() -> Documentation {
     .with_argument("raster", "Raster: Input raster")
     .with_argument("x", "Integer: Column x into the raster")
     .with_argument("y", "Integer: Row y into the raster")
-    .with_sql_example("SELECT RS_RasterToWorldCoordX(RS_Example(), 1, 1)".to_string())
+    .with_sql_example("SELECT RS_RasterToWorldCoordX(RS_Example(), 0, 0)".to_string())
     .build()
 }
 

@@ -73,28 +73,19 @@ mod tests {
             },
         };
 
-        let (wx, wy) = to_world_coordinate(&raster, 0, 0).unwrap();
+        let (wx, wy) = to_world_coordinate(&raster, 0, 0);
         assert_eq!((wx, wy), (100.0, 200.0));
 
-        let (wx, wy) = to_world_coordinate(&raster, 5, 10).unwrap();
+        let (wx, wy) = to_world_coordinate(&raster, 5, 10);
         assert_eq!((wx, wy), (107.5, 182.5));
 
-        let (wx, wy) = to_world_coordinate(&raster, 9, 19).unwrap();
+        let (wx, wy) = to_world_coordinate(&raster, 9, 19);
         assert_eq!((wx, wy), (113.75, 166.5));
 
-        let (wx, wy) = to_world_coordinate(&raster, 1, 0).unwrap();
+        let (wx, wy) = to_world_coordinate(&raster, 1, 0);
         assert_eq!((wx, wy), (101.0, 200.5));
 
-        let (wx, wy) = to_world_coordinate(&raster, 0, 1).unwrap();
+        let (wx, wy) = to_world_coordinate(&raster, 0, 1);
         assert_eq!((wx, wy), (100.25, 198.0));
-
-        // Test bounds
-        let result = to_world_coordinate(&raster, 10, 0);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("out of bounds"));
-
-        let result = to_world_coordinate(&raster, 0, 20);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("out of bounds"));
     }
 }
