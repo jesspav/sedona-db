@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use arrow_schema::ArrowError;
-
 use crate::traits::RasterRef;
 
 /// Performs an affine transformation on the provided x and y coordinates based on the geotransform
@@ -27,28 +25,15 @@ use crate::traits::RasterRef;
 /// * `x` - X coordinate in pixel space (column)
 /// * `y` - Y coordinate in pixel space (row)
 #[inline]
-pub fn to_world_coordinate(
-    raster: &dyn RasterRef,
-    x: u64,
-    y: u64,
-) -> Result<(f64, f64), ArrowError> {
+pub fn to_world_coordinate(raster: &dyn RasterRef, x: u64, y: u64) -> (f64, f64) {
     let metadata = raster.metadata();
-    let width = metadata.width();
-    let height = metadata.height();
-
-    if x >= width || y >= height {
-        return Err(ArrowError::InvalidArgumentError(
-            "Coordinates out of bounds".to_string(),
-        ));
-    }
-
     let x_f64 = x as f64;
     let y_f64 = y as f64;
 
     let world_x = metadata.upper_left_x() + x_f64 * metadata.scale_x() + y_f64 * metadata.skew_x();
     let world_y = metadata.upper_left_y() + x_f64 * metadata.skew_y() + y_f64 * metadata.scale_y();
 
-    Ok((world_x, world_y))
+    (world_x, world_y)
 }
 
 #[cfg(test)]

@@ -29,7 +29,7 @@ use sedona_schema::{datatypes::SedonaType, matchers::ArgMatcher};
 
 /// RS_RasterToWorldCoordY() scalar UDF implementation
 ///
-/// Extract the rastertoworldcoordy of the raster
+/// Converts pixel coordinates to world Y coordinate
 pub fn rs_rastertoworldcoordy_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_rastertoworldcoordy",
@@ -41,7 +41,7 @@ pub fn rs_rastertoworldcoordy_udf() -> SedonaScalarUDF {
 
 /// RS_RasterToWorldCoordX() scalar UDF documentation
 ///
-/// Extract the rastertoworldcoordx of the raster
+/// Converts pixel coordinates to world X coordinate
 pub fn rs_rastertoworldcoordx_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_rastertoworldcoordx",
@@ -111,29 +111,17 @@ impl SedonaScalarKernel for RsCoordinateMapper {
         let mut builder = Float64Builder::with_capacity(executor.num_iterations());
 
         let (x_opt, y_opt) = get_scalar_coord(&args[1], &args[2])?;
-        match (x_opt, y_opt) {
-            (None, _) | (_, None) => {
-                for _ in 0..executor.num_iterations() {
-                    builder.append_null();
-                }
-                return Ok(ColumnarValue::Array(Arc::new(builder.finish())));
-            }
-            _ => {}
-        }
-
-        let x = x_opt.unwrap();
-        let y = y_opt.unwrap();
 
         executor.execute_raster_void(|_i, raster_opt| {
-            match raster_opt {
-                None => builder.append_null(),
-                Some(raster) => {
-                    let (world_x, world_y) = to_world_coordinate(&raster, x, y)?;
+            match (raster_opt, x_opt, y_opt) {
+                (Some(raster), Some(x), Some(y)) => {
+                    let (world_x, world_y) = to_world_coordinate(&raster, x, y);
                     match self.coord {
                         Coord::X => builder.append_value(world_x),
                         Coord::Y => builder.append_value(world_y),
                     };
                 }
+                (_, _, _) => builder.append_null(),
             }
             Ok(())
         })?;
