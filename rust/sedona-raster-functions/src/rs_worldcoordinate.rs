@@ -130,26 +130,25 @@ impl SedonaScalarKernel for RsCoordinateMapper {
     }
 }
 
-fn extract_positive_scalar(arg: &ColumnarValue) -> Result<Option<u64>> {
+fn extract_int_scalar(arg: &ColumnarValue) -> Result<Option<i64>> {
     match arg {
         ColumnarValue::Scalar(scalar) => {
             let i64_val = scalar.cast_to(&DataType::Int64)?;
             match i64_val {
-                ScalarValue::Int64(Some(v)) if v >= 0 => Ok(Some(v as u64)),
-                ScalarValue::Int64(None) => Ok(None),
-                _ => exec_err!("Coordinate must be non-negative"),
+                ScalarValue::Int64(Some(v)) => Ok(Some(v)),
+                _ => Ok(None),
             }
         }
-        _ => exec_err!("Unsupported coordinate type, only integer scalar values are supported"),
+        _ => exec_err!("Expected scalar integer argument for coordinate"),
     }
 }
 
 fn get_scalar_coord(
     x_arg: &ColumnarValue,
     y_arg: &ColumnarValue,
-) -> Result<(Option<u64>, Option<u64>)> {
-    let x_opt = extract_positive_scalar(x_arg)?;
-    let y_opt = extract_positive_scalar(y_arg)?;
+) -> Result<(Option<i64>, Option<i64>)> {
+    let x_opt = extract_int_scalar(x_arg)?;
+    let y_opt = extract_int_scalar(y_arg)?;
     Ok((x_opt, y_opt))
 }
 

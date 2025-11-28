@@ -25,7 +25,7 @@ use crate::traits::RasterRef;
 /// * `x` - X coordinate in pixel space (column)
 /// * `y` - Y coordinate in pixel space (row)
 #[inline]
-pub fn to_world_coordinate(raster: &dyn RasterRef, x: u64, y: u64) -> (f64, f64) {
+pub fn to_world_coordinate(raster: &dyn RasterRef, x: i64, y: i64) -> (f64, f64) {
     let metadata = raster.metadata();
     let x_f64 = x as f64;
     let y_f64 = y as f64;
