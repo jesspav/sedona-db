@@ -26,6 +26,7 @@ use crate::traits::RasterRef;
 /// * `raster` - Reference to the raster containing metadata
 /// * `x` - X coordinate in pixel space (column)
 /// * `y` - Y coordinate in pixel space (row)
+#[inline]
 pub fn to_world_coordinate(
     raster: &dyn RasterRef,
     x: u64,
@@ -36,10 +37,7 @@ pub fn to_world_coordinate(
     let height = metadata.height();
 
     if x >= width || y >= height {
-        return Err(ArrowError::InvalidArgumentError(format!(
-            "Coordinates ({}, {}) are out of bounds ({}x{})",
-            x, y, width, height
-        )));
+        return Err(ArrowError::InvalidArgumentError("Coordinates out of bounds".to_string()));
     }
 
     let x_f64 = x as f64;

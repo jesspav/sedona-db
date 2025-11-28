@@ -111,24 +111,28 @@ impl SedonaScalarKernel for RsCoordinateMapper {
         let mut builder = Float64Builder::with_capacity(executor.num_iterations());
 
         let (x_opt, y_opt) = get_scalar_coord(&args[1], &args[2])?;
-
-        executor.execute_raster_void(|_i, raster_opt| {
-            match (raster_opt, x_opt, y_opt) {
-                (None, _, _) | (_, None, _) | (_, _, None) => {
+        match (x_opt, y_opt) {
+            (None, _) | (_, None) => {
+                for _ in 0..executor.num_iterations() {
                     builder.append_null();
                 }
-                (Some(raster), Some(x), Some(y)) => match to_world_coordinate(&raster, x, y) {
-                    Ok((world_x, world_y)) => match self.coord {
-                        Coord::X => {
-                            builder.append_value(world_x);
-                        }
-                        Coord::Y => {
-                            builder.append_value(world_y);
-                        }
-                    },
-                    Err(_) => {
-                        builder.append_null();
-                    }
+                return Ok(ColumnarValue::Array(Arc::new(builder.finish())));
+            }
+            _ => {}
+        }
+
+        let x = x_opt.unwrap();
+        let y = y_opt.unwrap();
+
+        executor.execute_raster_void(|_i, raster_opt| {
+            match raster_opt {
+                None  => builder.append_null(),
+                Some(raster) => {
+                  let (world_x, world_y) = to_world_coordinate(&raster, x, y)?;
+                    match self.coord {
+                        Coord::X => builder.append_value(world_x),
+                        Coord::Y => builder.append_value(world_y),
+                    };
                 },
             }
             Ok(())
@@ -172,7 +176,7 @@ mod tests {
     use sedona_testing::testers::ScalarUdfTester;
 
     #[test]
-    fn udf_size() {
+    fn udf_docs() {
         let udf: ScalarUDF = rs_rastertoworldcoordy_udf().into();
         assert_eq!(udf.name(), "rs_rastertoworldcoordy");
         assert!(udf.documentation().is_some());
@@ -183,8 +187,8 @@ mod tests {
     }
 
     #[rstest]
-    fn udf_invoke(#[values(Coord::Y, Coord::X)] st: Coord) {
-        let udf = match st {
+    fn udf_invoke(#[values(Coord::Y, Coord::X)] coord: Coord) {
+        let udf = match coord {
             Coord::X => rs_rastertoworldcoordx_udf(),
             Coord::Y => rs_rastertoworldcoordy_udf(),
         };
@@ -198,14 +202,14 @@ mod tests {
         );
 
         let rasters = generate_test_rasters(3, Some(1)).unwrap();
-        let expected_values = match st {
+        // At 0,0 expect the upper left corner of the test values
+        let expected_values = match coord {
             Coord::X => vec![Some(1.0), None, Some(3.0)],
             Coord::Y => vec![Some(2.0), None, Some(4.0)],
         };
         let expected: Arc<dyn arrow_array::Array> =
             Arc::new(arrow_array::Float64Array::from(expected_values));
 
-        // Check with scalar coordinates
         let result = tester
             .invoke_array_scalar_scalar(Arc::new(rasters), 0_i32, 0_i32)
             .unwrap();

@@ -15,12 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 use criterion::{criterion_group, criterion_main, Criterion};
-use sedona_testing::benchmark_util::{benchmark, BenchmarkArgSpec::*};
+use sedona_testing::benchmark_util::{benchmark, BenchmarkArgs, BenchmarkArgSpec::*};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let f = sedona_raster_functions::register::default_function_set();
 
     benchmark::scalar(c, &f, "native", "rs_height", Raster(64, 64));
+    benchmark::scalar(
+        c,
+        &f,
+        "native",
+        "rs_rastertoworldcoordx",
+        BenchmarkArgs::ArrayScalarScalar(Raster(64, 64), Int32(0, 63), Int32(0, 63)),
+    );
+    benchmark::scalar(
+        c,
+        &f,
+        "native",
+        "rs_rastertoworldcoordy",
+        BenchmarkArgs::ArrayScalarScalar(Raster(64, 64), Int32(0, 63), Int32(0, 63)),
+    );
     benchmark::scalar(c, &f, "native", "rs_scalex", Raster(64, 64));
     benchmark::scalar(c, &f, "native", "rs_scaley", Raster(64, 64));
     benchmark::scalar(c, &f, "native", "rs_skewx", Raster(64, 64));
