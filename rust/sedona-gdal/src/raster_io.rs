@@ -121,10 +121,10 @@ pub fn read_raster(
                 height: tile_height as u64,
                 upperleft_x: tile_upperleft_x,
                 upperleft_y: tile_upperleft_y,
-                scale_x: scale_x,
-                scale_y: scale_y,
-                skew_x: skew_x,
-                skew_y: skew_y,
+                scale_x,
+                scale_y,
+                skew_x,
+                skew_y,
             };
 
             raster_builder.start_raster(&tile_metadata, None)?;
@@ -138,12 +138,9 @@ pub fn read_raster(
                 let actual_tile_height = tile_height.min(raster_height - y_offset);
 
                 let data_type = to_banddatatype(band.band_type())?;
-
-                // Start the band with metadata first
-                let nodata_value = match band.no_data_value() {
-                    Some(val) => Some(f64_to_bandtype_bytes(val, data_type.clone())),
-                    None => None,
-                };
+                let nodata_value = band
+                    .no_data_value()
+                    .map(|val| f64_to_bandtype_bytes(val, data_type.clone()));
 
                 let band_metadata = BandMetadata {
                     nodata_value,
@@ -541,7 +538,7 @@ mod tests {
     use sedona_raster::array::RasterStructArray;
     use sedona_raster::traits::RasterRef;
     use sedona_schema::raster::BandDataType;
-    use sedona_testing::rasters::{generate_tiled_rasters, assert_raster_arrays_equal};
+    use sedona_testing::rasters::{assert_raster_arrays_equal, generate_tiled_rasters};
     use tempfile::tempdir;
 
     #[rstest]
@@ -608,7 +605,7 @@ mod tests {
         // Validate that we get back the original raster array
         assert_raster_arrays_equal(
             &raster_array,
-            &RasterStructArray::new(&read_original_tiling_raster_array)
+            &RasterStructArray::new(&read_original_tiling_raster_array),
         );
 
         // Clean up
@@ -624,7 +621,7 @@ mod tests {
         assert!(err.to_string().contains(".tif or .tiff"));
 
         let raster_struct =
-            generate_tiled_rasters((16, 16), (8,8), BandDataType::UInt8, Some(42)).unwrap();
+            generate_tiled_rasters((16, 16), (8, 8), BandDataType::UInt8, Some(42)).unwrap();
         let err = write_geotiff(&raster_struct, "test.zarr").unwrap_err();
         assert!(err.to_string().contains("Expected GeoTIFF"));
     }
@@ -668,7 +665,7 @@ mod tests {
         assert_abs_diff_eq!(
             bytes_to_f64(&bytes, BandDataType::Float32).unwrap(),
             256.7,
-            epsilon = 0.0001  // f32 precision limit
+            epsilon = 0.0001 // f32 precision limit
         );
 
         // Float64

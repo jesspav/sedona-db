@@ -56,7 +56,10 @@ mod tests {
 
     #[test]
     fn test_f64_to_bandtype_bytes() {
-        assert_eq!(f64_to_bandtype_bytes(255.0, BandDataType::UInt8), vec![255u8]);
+        assert_eq!(
+            f64_to_bandtype_bytes(255.0, BandDataType::UInt8),
+            vec![255u8]
+        );
         assert_eq!(
             f64_to_bandtype_bytes(65535.0, BandDataType::UInt16),
             65535u16.to_le_bytes().to_vec()
@@ -74,12 +77,12 @@ mod tests {
             (-2147483648i32).to_le_bytes().to_vec()
         );
         assert_eq!(
-            f64_to_bandtype_bytes(3.14, BandDataType::Float32),
-            (3.14f32).to_le_bytes().to_vec()
+            f64_to_bandtype_bytes(std::f32::consts::PI.into(), BandDataType::Float32),
+            (std::f32::consts::PI).to_le_bytes().to_vec()
         );
         assert_eq!(
-            f64_to_bandtype_bytes(2.718281828459045, BandDataType::Float64),
-            (2.718281828459045f64).to_le_bytes().to_vec()
+            f64_to_bandtype_bytes(std::f64::consts::E, BandDataType::Float64),
+            (std::f64::consts::E).to_le_bytes().to_vec()
         );
     }
-}   
+}
