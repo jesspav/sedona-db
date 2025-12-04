@@ -93,7 +93,7 @@ fn rs_rastertoworldcoordx_doc() -> Documentation {
 fn rs_rastertoworldcoord_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
-        "Returns the grid coordinate of the given world coordinates as a Point.".to_string(),
+        "Returns the upper left X and Y coordinates of the given row and column of the given raster geometric units of the geo-referenced raster as a Point geometry. If any out of bounds values are given, the X and Y coordinates of the assumed point considering existing raster pixel size and skew values will be returned.".to_string(),
         "RS_RasterToWorldCoord(raster: Raster, x: Integer, y: Integer)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
