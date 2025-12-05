@@ -140,12 +140,12 @@ pub fn read_raster(
                 let data_type = to_banddatatype(band.band_type())?;
                 let nodata_value = band
                     .no_data_value()
-                    .map(|val| f64_to_bandtype_bytes(val, data_type.clone()));
+                    .map(|val| f64_to_bandtype_bytes(val, data_type));
 
                 let band_metadata = BandMetadata {
                     nodata_value,
                     storage_type: StorageType::InDb,
-                    datatype: data_type.clone(),
+                    datatype: data_type,
                     outdb_url: None,
                     outdb_band_id: None,
                 };
@@ -154,7 +154,7 @@ pub fn read_raster(
 
                 // Reserve capacity and write band data directly from GDAL
                 let pixel_count = actual_tile_width * actual_tile_height;
-                let bytes_needed = pixel_count * bytes_per_pixel(data_type.clone());
+                let bytes_needed = pixel_count * bytes_per_pixel(data_type);
 
                 // Pre-allocate a vector of the exact size needed
                 let mut band_data = vec![0u8; bytes_needed];
@@ -506,7 +506,7 @@ fn write_band_data(
 
 /// Convert nodata value bytes back to f64
 fn bytes_to_f64(bytes: &[u8], data_type: BandDataType) -> Option<f64> {
-    let expected_bytes = bytes_per_pixel(data_type.clone());
+    let expected_bytes = bytes_per_pixel(data_type);
     if bytes.len() < expected_bytes {
         return None;
     }
@@ -557,7 +557,7 @@ mod tests {
         let tile_count = (4, 4);
         let tile_size = (16, 8);
         let raster_struct =
-            generate_tiled_rasters(tile_size, tile_count, data_type.clone(), Some(42)).unwrap();
+            generate_tiled_rasters(tile_size, tile_count, data_type, Some(42)).unwrap();
 
         // Write the raster array to a temporary GeoTIFF file
         let temp_dir = tempdir().unwrap();
