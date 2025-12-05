@@ -21,7 +21,7 @@ use crate::traits::RasterRef;
 #[inline]
 pub fn rotation(raster: &dyn RasterRef) -> f64 {
     let metadata = raster.metadata();
-    metadata.skew_y().atan2(metadata.scale_x())
+    (-metadata.skew_x()).atan2(metadata.scale_x())
 }
 
 /// Performs an affine transformation on the provided x and y coordinates based on the geotransform
@@ -95,7 +95,7 @@ mod tests {
         // pi -> gt[-1.0, 0.0, 0.0, -1.0]
         let raster = rotation_raster(-1.0, -1.0, 0.0, 0.0);
         let rot = rotation(&raster);
-        assert!(approx_equals(rot, PI, 1e-6)); // 180 degrees in radians
+        assert!(approx_equals(rot, -PI, 1e-6)); // 180 degrees in radians
     }
 
     #[test]
