@@ -55,21 +55,33 @@ fn criterion_benchmark(c: &mut Criterion) {
         &f,
         "native-raster",
         "rs_worldtorastercoord",
-        BenchmarkArgs::ArrayScalarScalar(Raster(64, 64), Float64(-45.0, 45.0), Float64(-45.0, 45.0)),
+        BenchmarkArgs::ArrayScalarScalar(
+            Raster(64, 64),
+            Float64(-45.0, 45.0),
+            Float64(-45.0, 45.0),
+        ),
     );
     benchmark::scalar(
         c,
         &f,
         "native-raster",
         "rs_worldtorastercoordx",
-        BenchmarkArgs::ArrayScalarScalar(Raster(64, 64), Float64(-45.0, 45.0), Float64(-45.0, 45.0)),
+        BenchmarkArgs::ArrayScalarScalar(
+            Raster(64, 64),
+            Float64(-45.0, 45.0),
+            Float64(-45.0, 45.0),
+        ),
     );
     benchmark::scalar(
         c,
         &f,
         "native-raster",
         "rs_worldtorastercoordy",
-        BenchmarkArgs::ArrayScalarScalar(Raster(64, 64), Float64(-45.0, 45.0), Float64(-45.0, 45.0)),
+        BenchmarkArgs::ArrayScalarScalar(
+            Raster(64, 64),
+            Float64(-45.0, 45.0),
+            Float64(-45.0, 45.0),
+        ),
     );
 }
 

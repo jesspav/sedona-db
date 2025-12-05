@@ -317,7 +317,7 @@ mod tests {
         let result = tester
             .invoke_array_scalar_scalar(Arc::new(rasters), 2.0_f64, 3.0_f64)
             .unwrap();
-        assert_array_equal(&result, &expected);
+        assert_array_equal(&result, expected);
 
         // Test that we correctly handle non-invertible geotransforms
         let noninvertible_rasters = generate_test_rasters(2, None).unwrap();

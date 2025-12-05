@@ -52,7 +52,7 @@ pub fn to_raster_coordinate(
     let metadata = raster.metadata();
     let det = metadata.scale_x() * metadata.scale_y() - metadata.skew_x() * metadata.skew_y();
 
-    if (det - 0.0).abs() < std::f64::EPSILON {
+    if (det - 0.0).abs() < f64::EPSILON {
         return Err(ArrowError::InvalidArgumentError(
             "Cannot compute coordinate: determinant is zero.".to_string(),
         ));
