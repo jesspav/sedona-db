@@ -48,6 +48,7 @@ mod tests {
     use super::*;
     use crate::traits::{MetadataRef, RasterMetadata};
     use std::f64::consts::PI;
+    use std::f64::consts::FRAC_1_SQRT_2;
 
     fn approx_equals(a: f64, b: f64, epsilon: f64) -> bool {
         (a - b).abs() < epsilon
@@ -82,7 +83,7 @@ mod tests {
         assert!(approx_equals(rot, PI / 2.0, 1e-6)); // 90 degrees in radians
 
         // pi/4 -> gt[0.70710678, -0.70710678, 0.70710678, 0.70710678]
-        let raster = rotation_raster(0.70710678, 0.70710678, -0.70710678, 0.70710678);
+        let raster = rotation_raster(FRAC_1_SQRT_2, FRAC_1_SQRT_2, -FRAC_1_SQRT_2, FRAC_1_SQRT_2);
         let rot = rotation(&raster);
         assert!(approx_equals(rot, PI / 4.0, 1e-6)); // 45 degrees in radians
 
