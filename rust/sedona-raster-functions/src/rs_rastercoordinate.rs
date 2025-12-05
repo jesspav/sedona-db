@@ -31,7 +31,7 @@ use sedona_schema::{datatypes::SedonaType, matchers::ArgMatcher};
 
 /// RS_WorldToRasterCoordY() scalar UDF documentation
 ///
-/// Converts pixel coordinates to world Y coordinate
+/// Converts world coordinates to raster Y coordinate
 pub fn rs_worldtorastercoordy_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_worldtorastercoordy",
@@ -43,7 +43,7 @@ pub fn rs_worldtorastercoordy_udf() -> SedonaScalarUDF {
 
 /// RS_WorldToRasterCoordX() scalar UDF documentation
 ///
-/// Converts pixel coordinates to world X coordinate
+/// Converts world coordinates to raster X coordinate
 pub fn rs_worldtorastercoordx_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_worldtorastercoordx",
@@ -55,7 +55,7 @@ pub fn rs_worldtorastercoordx_udf() -> SedonaScalarUDF {
 
 /// RS_WorldToRasterCoord() scalar UDF documentation
 ///
-/// Converts pixel coordinates to world coordinate Point
+/// Converts world coordinates to raster coordinates as a Point
 pub fn rs_worldtorastercoord_udf() -> SedonaScalarUDF {
     SedonaScalarUDF::new(
         "rs_worldtorastercoord",
@@ -72,8 +72,8 @@ fn rs_worldtorastercoordx_doc() -> Documentation {
         "RS_WorldToRasterCoord(raster: Raster, x: Float, y: Float)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_argument("x", "Geometry: World x coordinate")
-    .with_argument("y", "Geometry: World y coordinate")
+    .with_argument("x", "Float: World x coordinate")
+    .with_argument("y", "Float: World y coordinate")
     .with_sql_example("SELECT RS_WorldToRasterCoordX(RS_Example(), 34.865965, -111.812498)".to_string())
     .build()
 }
@@ -85,8 +85,8 @@ fn rs_worldtorastercoordy_doc() -> Documentation {
         "RS_WorldToRasterCoord(raster: Raster, x: Float, y: Float)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_argument("x", "Geometry: World x coordinate")
-    .with_argument("y", "Geometry: World y coordinate")
+    .with_argument("x", "Float: World x coordinate")
+    .with_argument("y", "Float: World y coordinate")
     .with_sql_example("SELECT RS_WorldToRasterCoordY(RS_Example(), 34.865965, -111.812498)".to_string())
     .build()
 }
@@ -98,8 +98,8 @@ fn rs_worldtorastercoord_doc() -> Documentation {
         "RS_WorldToRasterCoord(raster: Raster, x: Float, y: Float)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
-    .with_argument("x", "Geometry: World x coordinate")
-    .with_argument("y", "Geometry: World y coordinate")
+    .with_argument("x", "Float: World x coordinate")
+    .with_argument("y", "Float: World y coordinate")
     .with_sql_example(
         "SELECT RS_WorldToRasterCoord(RS_Example(), 34.865965, -111.812498)".to_string(),
     )
