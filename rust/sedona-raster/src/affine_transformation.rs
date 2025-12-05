@@ -47,8 +47,8 @@ pub fn to_world_coordinate(raster: &dyn RasterRef, x: i64, y: i64) -> (f64, f64)
 mod tests {
     use super::*;
     use crate::traits::{MetadataRef, RasterMetadata};
-    use std::f64::consts::PI;
     use std::f64::consts::FRAC_1_SQRT_2;
+    use std::f64::consts::PI;
 
     fn approx_equals(a: f64, b: f64, epsilon: f64) -> bool {
         (a - b).abs() < epsilon
