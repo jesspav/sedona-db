@@ -92,9 +92,14 @@ pub fn read_raster(
     let (raster_width, raster_height) = dataset.raster_size();
 
     // Use provided tile dimensions or fall back to dataset metadata
+    // If neither is provided, default to full raster size
+    // In the future consider using an ideal tile size
     let (tile_width, tile_height) = match tile_size_opt {
         Some((w, h)) => (w, h),
-        _ => tile_size(&dataset)?,
+        _ => match tile_size(&dataset) {
+            (Some(w), Some(h)) => (w, h),
+            _ => (raster_width, raster_height),
+        },
     };
 
     let x_tile_count = raster_width.div_ceil(tile_width);

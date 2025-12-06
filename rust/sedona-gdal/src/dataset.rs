@@ -40,23 +40,17 @@ pub fn geotransform_components(
 }
 
 /// Extract tile size from a GDAL dataset
-/// If not provided, defaults to raster size. In future, will consider
-/// defaulting to an ideal tile size instead of full raster size once we know
-/// what the idea tile size should be.
-pub fn tile_size(dataset: &Dataset) -> Result<(usize, usize), ArrowError> {
-    let raster_width = dataset.raster_size().0;
-    let raster_height = dataset.raster_size().1;
-
+pub fn tile_size(dataset: &Dataset) -> (Option<usize>, Option<usize>) {
     let tile_width = match dataset.metadata_item("TILEWIDTH", "") {
-        Some(val) => val.parse::<usize>().unwrap_or(raster_width),
-        None => raster_width,
+        Some(val) => val.parse::<usize>().ok(),
+        None => None,
     };
     let tile_height = match dataset.metadata_item("TILEHEIGHT", "") {
-        Some(val) => val.parse::<usize>().unwrap_or(raster_height),
-        None => raster_height,
+        Some(val) => val.parse::<usize>().ok(),
+        None => None,
     };
 
-    Ok((tile_width, tile_height))
+    (tile_width, tile_height)
 }
 
 pub fn to_banddatatype(gdal_data_type: GdalDataType) -> Result<BandDataType, ArrowError> {
@@ -81,12 +75,11 @@ mod tests {
     use gdal::DriverManager;
 
     #[test]
-    fn test_geotransform_components() -> Result<(), ArrowError> {
-        let driver = DriverManager::get_driver_by_name("MEM")
-            .map_err(|e| ArrowError::ParseError(format!("Failed to get MEM driver: {e}")))?;
+    fn test_geotransform_components() {
+        let driver = DriverManager::get_driver_by_name("MEM").unwrap();
         let mut dataset = driver
             .create_with_band_type::<u8, _>("", 100, 100, 1)
-            .map_err(|e| ArrowError::ParseError(format!("Failed to create dataset: {e}")))?;
+            .unwrap();
 
         let (upper_left_x, upper_left_y, pixel_width, pixel_height, rotation_x, rotation_y) =
             (10.0, 20.0, 1.5, -2.5, 0.1, 0.2);
@@ -101,34 +94,46 @@ mod tests {
                 rotation_y,
                 pixel_height,
             ])
-            .map_err(|e| ArrowError::ParseError(format!("Failed to set geotransform: {e}")))?;
+            .unwrap();
 
-        let (ulx, uly, sx, sy, rx, ry) = geotransform_components(&dataset)?;
+        let (ulx, uly, sx, sy, rx, ry) = geotransform_components(&dataset).unwrap();
         assert_eq!(ulx, upper_left_x);
         assert_eq!(uly, upper_left_y);
         assert_eq!(sx, pixel_width);
         assert_eq!(sy, pixel_height);
         assert_eq!(rx, rotation_x);
         assert_eq!(ry, rotation_y);
-        Ok(())
     }
 
     #[test]
     fn test_tile_size() -> Result<(), ArrowError> {
         let driver = DriverManager::get_driver_by_name("MEM")
             .map_err(|e| ArrowError::ParseError(format!("Failed to get MEM driver: {e}")))?;
-        let dataset = driver
+        let mut dataset = driver
             .create_with_band_type::<u8, _>("", 256, 512, 1)
             .map_err(|e| ArrowError::ParseError(format!("Failed to create dataset: {e}")))?;
-        let (tile_width, tile_height) = tile_size(&dataset)?;
-        assert_eq!(tile_width, 256);
-        assert_eq!(tile_height, 512);
+
+        // Set real tile size metadata
+        dataset
+            .set_metadata_item("TILEWIDTH", "256", "")
+            .map_err(|e| ArrowError::ParseError(format!("Failed to set TILEWIDTH: {e}")))?;
+        dataset
+            .set_metadata_item("TILEHEIGHT", "512", "")
+            .map_err(|e| ArrowError::ParseError(format!("Failed to set TILEHEIGHT: {e}")))?;
+
+        let (tile_width, tile_height) = tile_size(&dataset);
+        assert!(tile_width.is_some());
+        assert_eq!(tile_width.unwrap(), 256);
+        assert_eq!(tile_height.unwrap(), 512);
         Ok(())
     }
 
     #[test]
-    fn test_to_banddatatype() -> Result<(), ArrowError> {
-        assert_eq!(to_banddatatype(GdalDataType::UInt8)?, BandDataType::UInt8);
+    fn test_to_banddatatype() {
+        assert_eq!(
+            to_banddatatype(GdalDataType::UInt8).unwrap(),
+            BandDataType::UInt8
+        );
         let result = to_banddatatype(GdalDataType::Unknown);
         assert!(result.is_err());
         assert!(result
@@ -136,6 +141,5 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("Unsupported GDAL data type"));
-        Ok(())
     }
 }
