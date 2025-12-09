@@ -177,12 +177,9 @@ impl SedonaScalarKernel for RsCrs {
                     Some(crs_str) => {
                         let crs_value = serde_json::Value::String(crs_str.to_string());
                         let crs = deserialize_crs(&crs_value).map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to deserialize CRS: {}",
-                                e
-                            ))
+                            DataFusionError::Execution(format!("Failed to deserialize CRS: {}", e))
                         })?;
-                        
+
                         let crs_string = crs
                             .ok_or_else(|| {
                                 DataFusionError::Execution(
@@ -226,7 +223,7 @@ mod tests {
     #[test]
     fn udf_srid() {
         let udf: ScalarUDF = rs_srid_udf().into();
-        let tester = ScalarUdfTester::new(udf.into(), vec![RASTER]);
+        let tester = ScalarUdfTester::new(udf, vec![RASTER]);
 
         tester.assert_return_type(DataType::UInt32);
 
@@ -246,7 +243,7 @@ mod tests {
     #[test]
     fn udf_crs() {
         let udf: ScalarUDF = rs_crs_udf().into();
-        let tester = ScalarUdfTester::new(udf.into(), vec![RASTER]);
+        let tester = ScalarUdfTester::new(udf, vec![RASTER]);
 
         tester.assert_return_type(DataType::Utf8);
 
