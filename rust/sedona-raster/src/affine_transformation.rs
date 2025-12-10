@@ -215,7 +215,7 @@ mod tests {
             .to_string()
             .contains("determinant is zero."));
     }
-    
+
     fn rotation_raster(scale_x: f64, scale_y: f64, skew_x: f64, skew_y: f64) -> TestRaster {
         TestRaster {
             metadata: RasterMetadata {
@@ -229,5 +229,5 @@ mod tests {
                 skew_y,
             },
         }
-    } 
+    }
 }
