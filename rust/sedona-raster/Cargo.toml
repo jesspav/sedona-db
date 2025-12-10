@@ -35,4 +35,5 @@ sedona-common = { workspace = true }
 sedona-schema = { workspace = true }
 
 [dev-dependencies]
+approx = { workspace = true }
 sedona-testing = { path = "../sedona-testing" }

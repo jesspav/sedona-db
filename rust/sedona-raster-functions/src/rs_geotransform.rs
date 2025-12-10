@@ -287,6 +287,10 @@ mod tests {
 
     #[test]
     fn udf_info() {
+        let udf: ScalarUDF = rs_rotation_udf().into();
+        assert_eq!(udf.name(), "rs_rotation");
+        assert!(udf.documentation().is_some());
+
         let udf: ScalarUDF = rs_scalex_udf().into();
         assert_eq!(udf.name(), "rs_scalex");
         assert!(udf.documentation().is_some());

@@ -47,12 +47,9 @@ pub fn to_world_coordinate(raster: &dyn RasterRef, x: i64, y: i64) -> (f64, f64)
 mod tests {
     use super::*;
     use crate::traits::{MetadataRef, RasterMetadata};
+    use approx::assert_relative_eq;
     use std::f64::consts::FRAC_1_SQRT_2;
     use std::f64::consts::PI;
-
-    fn approx_equals(a: f64, b: f64, epsilon: f64) -> bool {
-        (a - b).abs() < epsilon
-    }
 
     struct TestRaster {
         metadata: RasterMetadata,
@@ -80,22 +77,22 @@ mod tests {
         // pi/2 -> gt[0.0, -1.0, 1.0, 0.0]
         let raster = rotation_raster(0.0, 0.0, -1.0, 1.0);
         let rot = rotation(&raster);
-        assert!(approx_equals(rot, PI / 2.0, 1e-6)); // 90 degrees in radians
+        assert_relative_eq!(rot, PI / 2.0, epsilon = 1e-6); // 90 degrees in radians
 
         // pi/4 -> gt[0.70710678, -0.70710678, 0.70710678, 0.70710678]
         let raster = rotation_raster(FRAC_1_SQRT_2, FRAC_1_SQRT_2, -FRAC_1_SQRT_2, FRAC_1_SQRT_2);
         let rot = rotation(&raster);
-        assert!(approx_equals(rot, PI / 4.0, 1e-6)); // 45 degrees in radians
+        assert_relative_eq!(rot, PI / 4.0, epsilon = 1e-6); // 45 degrees in radians
 
         // pi/3 -> gt[0.5, -0.866025, 0.866025, 0.5]
         let raster = rotation_raster(0.5, 0.5, -0.866025, 0.866025);
         let rot = rotation(&raster);
-        assert!(approx_equals(rot, PI / 3.0, 1e-6)); // 60 degrees in radians
+        assert_relative_eq!(rot, PI / 3.0, epsilon = 1e-6); // 60 degrees in radians
 
         // pi -> gt[-1.0, 0.0, 0.0, -1.0]
         let raster = rotation_raster(-1.0, -1.0, 0.0, 0.0);
         let rot = rotation(&raster);
-        assert!(approx_equals(rot, -PI, 1e-6)); // 180 degrees in radians
+        assert_relative_eq!(rot, -PI, epsilon = 1e-6); // 180 degrees in radians
     }
 
     #[test]
