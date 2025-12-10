@@ -5150,6 +5150,7 @@ dependencies = [
 name = "sedona-raster"
 version = "0.3.0"
 dependencies = [
+ "approx",
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
