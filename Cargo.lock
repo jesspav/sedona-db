@@ -5155,6 +5155,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "sedona-common",
+ "sedona-geometry",
  "sedona-schema",
  "sedona-testing",
 ]
@@ -5172,6 +5173,7 @@ dependencies = [
  "rstest",
  "sedona-common",
  "sedona-expr",
+ "sedona-geometry",
  "sedona-raster",
  "sedona-schema",
  "sedona-testing",
