@@ -436,8 +436,7 @@ mod tests {
             "Wkb(ogc:crs84)"
         );
 
-        let projjson_value: Value = r#"{}"#.parse().unwrap();
-        let projjson_crs = deserialize_crs(&projjson_value).unwrap();
+        let projjson_crs = deserialize_crs("{}").unwrap();
         assert_eq!(
             SedonaType::Wkb(Edges::Planar, projjson_crs).to_string(),
             "Wkb({...})"
