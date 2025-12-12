@@ -16,8 +16,8 @@
 // under the License.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
 use sedona_schema::crs::deserialize_crs;
+use std::hint::black_box;
 
 fn bench_crs_equality(c: &mut Criterion) {
     c.bench_function("equality_lnglat_crs", |b| {
@@ -25,12 +25,8 @@ fn bench_crs_equality(c: &mut Criterion) {
             for _ in 0..100000 {
                 let crs_json1: serde_json::Value = serde_json::from_str("\"EPSG:4326\"").unwrap();
                 let crs_json2: serde_json::Value = serde_json::from_str("\"OGC:CRS84\"").unwrap();
-                let crs1 = deserialize_crs(&crs_json1)
-                    .unwrap()
-                    .unwrap();
-                let crs3 = deserialize_crs(&crs_json2)
-                    .unwrap()
-                    .unwrap();
+                let crs1 = deserialize_crs(&crs_json1).unwrap().unwrap();
+                let crs3 = deserialize_crs(&crs_json2).unwrap().unwrap();
                 let eq = crs1.crs_equals(crs3.as_ref());
                 black_box(eq);
             }
@@ -39,15 +35,11 @@ fn bench_crs_equality(c: &mut Criterion) {
 
     c.bench_function("equality_different_crs", |b| {
         b.iter(|| {
-                for _ in 0..100000 {
+            for _ in 0..100000 {
                 let crs_json1: serde_json::Value = serde_json::from_str("\"EPSG:3827\"").unwrap();
                 let crs_json2: serde_json::Value = serde_json::from_str("\"EPSG:3857\"").unwrap();
-                let crs1 = deserialize_crs(&crs_json1)
-                    .unwrap()
-                    .unwrap();
-                let crs2 = deserialize_crs(&crs_json2)
-                    .unwrap()
-                    .unwrap();
+                let crs1 = deserialize_crs(&crs_json1).unwrap().unwrap();
+                let crs2 = deserialize_crs(&crs_json2).unwrap().unwrap();
                 let eq = crs1.crs_equals(crs2.as_ref());
                 black_box(eq);
             }

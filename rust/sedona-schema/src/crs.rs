@@ -15,41 +15,70 @@
 // specific language governing permissions and limitations
 // under the License.
 use datafusion_common::{DataFusionError, Result};
+use lru::LruCache;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::Mutex;
 
 use serde_json::Value;
+
+/// LRU cache for CRS deserialization
+static CRS_CACHE: OnceLock<Mutex<LruCache<String, Crs>>> = OnceLock::new();
+
+fn get_crs_cache() -> &'static Mutex<LruCache<String, Crs>> {
+    CRS_CACHE.get_or_init(|| {
+        // Cache up to 256 CRS strings
+        Mutex::new(LruCache::new(NonZeroUsize::new(256).unwrap()))
+    })
+}
 
 /// Deserialize a specific GeoArrow "crs" value
 ///
 /// Currently the only CRS types supported are PROJJSON and authority:code
 /// where the authority and code are well-known lon/lat (WGS84) codes.
-pub fn deserialize_crs(crs: &Value) -> Result<Crs> {
-    if crs.is_null() {
+pub fn deserialize_crs(crs_json: &Value) -> Result<Crs> {
+    if crs_json.is_null() {
         return Ok(None);
     }
 
+    // Check cache first
+    {
+        let mut cache = get_crs_cache().lock().unwrap();
+        let key = crs_json.to_string();
+        if let Some(cached) = cache.get(&key) {
+            return Ok(cached.clone());
+        }
+    }
+
     // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
-    if LngLat::is_value_lnglat(crs) {
-        return Ok(lnglat());
-    }
-
-    if AuthorityCode::is_authority_code(crs) {
-        return Ok(AuthorityCode::crs(crs.as_str().unwrap().to_string()));
-    }
-
-    let projjson = if let Some(string) = crs.as_str() {
-        // Handle the geopandas bug where it exported stringified projjson.
-        // This could in the future handle other stringified versions with some
-        // auto detection logic.
-        string.parse()?
+    let crs = if LngLat::is_value_lnglat(crs_json) {
+        lnglat()
+    } else if AuthorityCode::is_authority_code(crs_json) {
+        AuthorityCode::crs(crs_json.as_str().unwrap().to_string())
     } else {
-        // Handle the case where Value is already an object
-        ProjJSON::try_new(crs.clone())?
+        let projjson = if let Some(string) = crs_json.as_str() {
+            // Handle the geopandas bug where it exported stringified projjson.
+            // This could in the future handle other stringified versions with some
+            // auto detection logic.
+            string.parse()?
+        } else {
+            // Handle the case where Value is already an object
+            ProjJSON::try_new(crs_json.clone())?
+        };
+
+        Some(Arc::new(projjson) as Arc<dyn CoordinateReferenceSystem + Send + Sync>)
     };
 
-    Ok(Some(Arc::new(projjson)))
+    // Cache the result
+    {
+        let mut cache = get_crs_cache().lock().unwrap();
+        cache.put(crs_json.to_string(), crs.clone());
+    }
+
+    Ok(crs)
 }
 
 /// Longitude/latitude CRS (WGS84)
