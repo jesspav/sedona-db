@@ -36,3 +36,11 @@ arrow-array = { workspace = true }
 datafusion-common = { workspace = true }
 sedona-common = { workspace = true }
 serde_json = { workspace = true }
+lru = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "crs_benchmarks"
+harness = false
