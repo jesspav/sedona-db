@@ -45,7 +45,7 @@ fn rs_envelope_doc() -> Documentation {
     Documentation::builder(
         DOC_SECTION_OTHER,
         "Returns the envelope of the raster as a Geometry.".to_string(),
-        "RS_Enveope(raster: Raster)".to_string(),
+        "RS_Envelope(raster: Raster)".to_string(),
     )
     .with_argument("raster", "Raster: Input raster")
     .with_sql_example("SELECT RS_Envelope(RS_Example())".to_string())
