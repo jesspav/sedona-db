@@ -18,12 +18,13 @@ use std::sync::Arc;
 
 use crate::executor::RasterExecutor;
 use arrow_array::builder::BinaryBuilder;
+use datafusion_common::DataFusionError;
 use datafusion_common::Result;
 use datafusion_expr::{
     scalar_doc_sections::DOC_SECTION_OTHER, ColumnarValue, Documentation, Volatility,
 };
 use sedona_expr::scalar_udf::{SedonaScalarKernel, SedonaScalarUDF};
-use sedona_geometry::wkb_factory::wkb_polygon;
+use sedona_geometry::wkb_factory::write_wkb_polygon;
 use sedona_raster::affine_transformation::to_world_coordinate;
 use sedona_raster::traits::RasterRef;
 use sedona_schema::datatypes::Edges;
@@ -80,10 +81,10 @@ impl SedonaScalarKernel for RsEnvelope {
 
         executor.execute_raster_void(|_i, raster_opt| {
             match raster_opt {
-                Some(raster) => match create_envelope_wkb(&raster) {
-                    Ok(wkb) => builder.append_value(&wkb),
-                    Err(_) => builder.append_null(),
-                },
+                Some(raster) => {
+                    create_envelope_wkb(&raster, &mut builder)?;
+                    builder.append_value([]);
+                }
                 None => builder.append_null(),
             }
             Ok(())
@@ -94,7 +95,7 @@ impl SedonaScalarKernel for RsEnvelope {
 }
 
 /// Create WKB for a polygon for the raster
-fn create_envelope_wkb(raster: &dyn RasterRef) -> Result<Vec<u8>> {
+fn create_envelope_wkb(raster: &dyn RasterRef, out: &mut impl std::io::Write) -> Result<()> {
     // Compute the four corners of the raster in world coordinates.
     // Due to skew/rotation in the affine transformation, each corner must be
     // computed individually.
@@ -109,12 +110,13 @@ fn create_envelope_wkb(raster: &dyn RasterRef) -> Result<Vec<u8>> {
     let (lrx, lry) = to_world_coordinate(raster, width, height);
     let (llx, lly) = to_world_coordinate(raster, 0, height);
 
-    // Create a closed polygon ring with 5 points, starting from upper-left and going clockwise
-    let points = vec![(ulx, uly), (urx, ury), (lrx, lry), (llx, lly), (ulx, uly)];
+    write_wkb_polygon(
+        out,
+        [(ulx, uly), (urx, ury), (lrx, lry), (llx, lly), (ulx, uly)].into_iter(),
+    )
+    .map_err(|e| DataFusionError::External(e.into()))?;
 
-    wkb_polygon(points.into_iter()).map_err(|e| {
-        datafusion_common::DataFusionError::Execution(format!("Failed to create WKB: {}", e))
-    })
+    Ok(())
 }
 
 #[cfg(test)]
