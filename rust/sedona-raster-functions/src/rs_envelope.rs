@@ -71,9 +71,11 @@ impl SedonaScalarKernel for RsEnvelope {
         args: &[ColumnarValue],
     ) -> Result<ColumnarValue> {
         let executor = RasterExecutor::new(arg_types, args);
+        // 1 (byte order) + 4 (type) + 4 (num rings) + 4 (num points) + 80 (5 points * 16 bytes)
+        let bytes_per_poly = 93;
         let mut builder = BinaryBuilder::with_capacity(
             executor.num_iterations(),
-            executor.num_iterations() * 100, // Estimate bytes per polygon
+            executor.num_iterations() * bytes_per_poly,
         );
 
         executor.execute_raster_void(|_i, raster_opt| {
