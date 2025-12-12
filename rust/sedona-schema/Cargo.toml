@@ -34,9 +34,9 @@ result_large_err = "allow"
 arrow-schema = { workspace = true }
 arrow-array = { workspace = true }
 datafusion-common = { workspace = true }
+lru = { workspace = true }
 sedona-common = { workspace = true }
 serde_json = { workspace = true }
-lru = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

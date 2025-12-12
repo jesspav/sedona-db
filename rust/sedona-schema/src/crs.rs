@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 use datafusion_common::{DataFusionError, Result};
-use lru::LruCache;
 use std::fmt::{Debug, Display};
-use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 use std::sync::Mutex;
 
@@ -39,43 +39,34 @@ fn get_crs_cache() -> &'static Mutex<LruCache<String, Crs>> {
 ///
 /// Currently the only CRS types supported are PROJJSON and authority:code
 /// where the authority and code are well-known lon/lat (WGS84) codes.
-pub fn deserialize_crs(crs_json: &Value) -> Result<Crs> {
-    if crs_json.is_null() {
+pub fn deserialize_crs(crs_str: &str) -> Result<Crs> {
+    if crs_str.is_empty() {
         return Ok(None);
     }
 
     // Check cache first
     {
         let mut cache = get_crs_cache().lock().unwrap();
-        let key = crs_json.to_string();
-        if let Some(cached) = cache.get(&key) {
+        if let Some(cached) = cache.get(crs_str) {
             return Ok(cached.clone());
         }
     }
 
     // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
-    let crs = if LngLat::is_value_lnglat(crs_json) {
+    let crs = if LngLat::is_str_lnglat(crs_str) {
         lnglat()
-    } else if AuthorityCode::is_authority_code(crs_json) {
-        AuthorityCode::crs(crs_json.as_str().unwrap().to_string())
+    } else if AuthorityCode::is_authority_code(crs_str) {
+        AuthorityCode::crs(crs_str)
     } else {
-        let projjson = if let Some(string) = crs_json.as_str() {
-            // Handle the geopandas bug where it exported stringified projjson.
-            // This could in the future handle other stringified versions with some
-            // auto detection logic.
-            string.parse()?
-        } else {
-            // Handle the case where Value is already an object
-            ProjJSON::try_new(crs_json.clone())?
-        };
-
+        // Try to parse as PROJJSON string
+        let projjson: ProjJSON = crs_str.parse()?;
         Some(Arc::new(projjson) as Arc<dyn CoordinateReferenceSystem + Send + Sync>)
     };
 
     // Cache the result
     {
         let mut cache = get_crs_cache().lock().unwrap();
-        cache.put(crs_json.to_string(), crs.clone());
+        cache.put(crs_str.to_string(), crs.clone());
     }
 
     Ok(crs)
@@ -179,17 +170,14 @@ impl LngLat {
         }
     }
 
-    pub fn is_value_lnglat(value: &Value) -> bool {
-        if let Some(string_value) = value.as_str() {
-            Self::is_authority_code_lnglat(string_value)
-        } else {
-            false
-        }
+    pub fn is_str_lnglat(string_value: &str) -> bool {
+        Self::is_authority_code_lnglat(string_value)
     }
 
     pub fn is_authority_code_lnglat(string_value: &str) -> bool {
         string_value == "OGC:CRS84" || string_value == "EPSG:4326"
     }
+
 
     pub fn srid() -> Option<u32> {
         Some(4326)
@@ -207,24 +195,23 @@ struct AuthorityCode {
 impl AuthorityCode {
     /// Create a Crs from an authority:code string
     /// Example: "EPSG:4269"
-    pub fn crs(auth_code: String) -> Crs {
-        let (authority, code) = Self::split_auth_code(&auth_code).unwrap();
-        Crs::Some(Arc::new(AuthorityCode { authority, code }))
+    pub fn crs(auth_code: &str) -> Crs {
+        let (authority, code) = Self::split_auth_code(auth_code).unwrap();
+        Some(Arc::new(AuthorityCode { authority, code }))
     }
 
     /// Check if a Value is an authority:code string
     /// Note: this can be expanded to more types in the future
-    pub fn is_authority_code(value: &Value) -> bool {
-        if let Some(string_value) = value.as_str() {
-            match Self::split_auth_code(string_value) {
-                Some((authority, code)) => {
-                    return Self::validate_authority(&authority) && Self::validate_code(&code)
-                }
-                None => return false,
-            }
+    pub fn is_authority_code(auth_code: &str) -> bool {
+        // Expecting <authority>:<code> format
+        if let Some(colon_pos) = auth_code.find(':') {
+            let authority = auth_code[..colon_pos].to_string();
+            let code = auth_code[colon_pos + 1..].to_string();
+            Self::validate_authority(&authority) && Self::validate_code(&code)
+        } else {
+            // No colon, check if it's a valid EPSG code
+            Self::validate_epsg_code(auth_code)
         }
-
-        false
     }
 
     /// Split an authority:code string into its components
@@ -265,12 +252,24 @@ impl AuthorityCode {
 impl CoordinateReferenceSystem for AuthorityCode {
     /// Convert to a JSON string
     fn to_json(&self) -> String {
-        format!("\"{}:{}\"", self.authority, self.code)
+        // Pre-allocate with exact capacity: authority + ':' + code + quotes
+        let mut result = String::with_capacity(self.authority.len() + 1 + self.code.len() + 2);
+        result.push('"');
+        result.push_str(&self.authority);
+        result.push(':');
+        result.push_str(&self.code);
+        result.push('"');
+        result
     }
 
     /// Convert to an authority code string
     fn to_authority_code(&self) -> Result<Option<String>> {
-        Ok(Some(format!("{}:{}", self.authority, self.code)))
+        // Pre-allocate with exact capacity: authority + ':' + code
+        let mut result = String::with_capacity(self.authority.len() + 1 + self.code.len());
+        result.push_str(&self.authority);
+        result.push(':');
+        result.push_str(&self.code);
+        Ok(Some(result))
     }
 
     /// Check equality with another CoordinateReferenceSystem

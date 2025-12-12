@@ -312,8 +312,14 @@ fn deserialize_edges_and_crs(value: &Option<String>) -> Result<(Edges, Crs)> {
             };
 
             let crs = match json_value.get("crs") {
-                Some(crs_value) => deserialize_crs(crs_value)?,
-                None => Crs::None,
+                Some(crs_value) => {
+                    if let Some(s) = crs_value.as_str() {
+                        deserialize_crs(s)?
+                    } else {
+                        deserialize_crs(&crs_value.to_string())?
+                    }
+                }
+                None => None,
             };
 
             Ok((edges, crs))
