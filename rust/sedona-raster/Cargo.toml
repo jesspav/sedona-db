@@ -35,7 +35,6 @@ arrow-schema = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 sedona-common = { workspace = true }
-sedona-geometry = { workspace = true }
 sedona-schema = { workspace = true }
 
 [dev-dependencies]
