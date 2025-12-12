@@ -252,24 +252,16 @@ impl AuthorityCode {
 impl CoordinateReferenceSystem for AuthorityCode {
     /// Convert to a JSON string
     fn to_json(&self) -> String {
-        // Pre-allocate with exact capacity: authority + ':' + code + quotes
         let mut result = String::with_capacity(self.authority.len() + 1 + self.code.len() + 2);
         result.push('"');
-        result.push_str(&self.authority);
-        result.push(':');
-        result.push_str(&self.code);
+        result.push_str(&self.to_crs_string());
         result.push('"');
         result
     }
 
     /// Convert to an authority code string
     fn to_authority_code(&self) -> Result<Option<String>> {
-        // Pre-allocate with exact capacity: authority + ':' + code
-        let mut result = String::with_capacity(self.authority.len() + 1 + self.code.len());
-        result.push_str(&self.authority);
-        result.push(':');
-        result.push_str(&self.code);
-        Ok(Some(result))
+        Ok(Some(self.to_crs_string()))
     }
 
     /// Check equality with another CoordinateReferenceSystem
@@ -291,8 +283,13 @@ impl CoordinateReferenceSystem for AuthorityCode {
         }
     }
 
+    /// Convert to a CRS string
     fn to_crs_string(&self) -> String {
-        format!("{}:{}", self.authority, self.code)
+        let mut result = String::with_capacity(self.authority.len() + 1 + self.code.len());
+        result.push_str(&self.authority);
+        result.push(':');
+        result.push_str(&self.code);
+        result
     }
 }
 
