@@ -319,7 +319,7 @@ fn deserialize_edges_and_crs(value: &Option<String>) -> Result<(Edges, Crs)> {
                         deserialize_crs(&crs_value.to_string())?
                     }
                 }
-                None => None,
+                None => Crs::None,
             };
 
             Ok((edges, crs))

@@ -206,9 +206,9 @@ impl AuthorityCode {
     pub fn is_authority_code(auth_code: &str) -> bool {
         // Expecting <authority>:<code> format
         if let Some(colon_pos) = auth_code.find(':') {
-            let authority = auth_code[..colon_pos].to_string();
-            let code = auth_code[colon_pos + 1..].to_string();
-            Self::validate_authority(&authority) && Self::validate_code(&code)
+            let authority = &auth_code[..colon_pos];
+            let code = &auth_code[colon_pos + 1..];
+            Self::validate_authority(authority) && Self::validate_code(code)
         } else {
             // No colon, check if it's a valid EPSG code
             Self::validate_epsg_code(auth_code)
