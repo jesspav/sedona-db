@@ -16,23 +16,20 @@
 // under the License.
 use datafusion_common::{DataFusionError, Result};
 use lru::LruCache;
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 
 use serde_json::Value;
 
-/// LRU cache for CRS deserialization
-static CRS_CACHE: OnceLock<Mutex<LruCache<String, Crs>>> = OnceLock::new();
-
-fn get_crs_cache() -> &'static Mutex<LruCache<String, Crs>> {
-    CRS_CACHE.get_or_init(|| {
-        // Cache up to 256 CRS strings
-        Mutex::new(LruCache::new(NonZeroUsize::new(256).unwrap()))
-    })
+thread_local! {
+    /// Thread-local LRU cache for CRS deserialization (one cache per thread)
+    /// Keeping the cache small to avoid excessive memory usage in multi-threaded contexts
+    /// with json values.
+    static CRS_CACHE: RefCell<LruCache<String, Crs>> =
+        RefCell::new(LruCache::new(NonZeroUsize::new(10).unwrap()));
 }
 
 /// Deserialize a specific GeoArrow "crs" value
@@ -45,11 +42,10 @@ pub fn deserialize_crs(crs_str: &str) -> Result<Crs> {
     }
 
     // Check cache first
-    {
-        let mut cache = get_crs_cache().lock().unwrap();
-        if let Some(cached) = cache.get(crs_str) {
-            return Ok(cached.clone());
-        }
+    let cached_result = CRS_CACHE.with(|cache| cache.borrow().peek(crs_str).cloned());
+
+    if let Some(cached) = cached_result {
+        return Ok(cached);
     }
 
     // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
@@ -64,12 +60,41 @@ pub fn deserialize_crs(crs_str: &str) -> Result<Crs> {
     };
 
     // Cache the result
-    {
-        let mut cache = get_crs_cache().lock().unwrap();
-        cache.put(crs_str.to_string(), crs.clone());
-    }
+    CRS_CACHE.with(|cache| {
+        cache.borrow_mut().put(crs_str.to_string(), crs.clone());
+    });
 
     Ok(crs)
+}
+
+/// Deserialize a CRS from a serde_json::Value object
+pub fn deserialize_crs_from_obj(crs_value: &serde_json::Value) -> Result<Crs> {
+    if crs_value.is_null() {
+        return Ok(None);
+    }
+
+    if let Some(crs_str) = crs_value.as_str() {
+        // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
+        if LngLat::is_str_lnglat(crs_str) {
+            return Ok(lnglat());
+        }
+
+        if AuthorityCode::is_authority_code(crs_str) {
+            return Ok(AuthorityCode::crs(crs_str));
+        }
+    }
+
+    let projjson = if let Some(string) = crs_value.as_str() {
+        // Handle the geopandas bug where it exported stringified projjson.
+        // This could in the future handle other stringified versions with some
+        // auto detection logic.
+        string.parse()?
+    } else {
+        // Handle the case where Value is already an object
+        ProjJSON::try_new(crs_value.clone())?
+    };
+
+    Ok(Some(Arc::new(projjson)))
 }
 
 /// Longitude/latitude CRS (WGS84)
@@ -382,6 +407,18 @@ mod test {
         assert!(deserialize_crs("").unwrap().is_none());
 
         assert!(deserialize_crs("[]").is_err());
+
+        let crs_value = serde_json::Value::String("EPSG:4326".to_string());
+        assert_eq!(deserialize_crs_from_obj(&crs_value).unwrap(), lnglat());
+
+        let crs_value = serde_json::Value::String("OGC:CRS84".to_string());
+        assert_eq!(deserialize_crs_from_obj(&crs_value).unwrap(), lnglat());
+
+        let projjson_value: Value = serde_json::from_str(OGC_CRS84_PROJJSON).unwrap();
+        assert_eq!(deserialize_crs_from_obj(&projjson_value).unwrap(), lnglat());
+
+        assert!(deserialize_crs_from_obj(&Value::Null).unwrap().is_none());
+        assert!(deserialize_crs_from_obj(&serde_json::Value::String("[]".to_string())).is_err());
     }
 
     #[test]
@@ -451,5 +488,13 @@ mod test {
 
         let new_crs = deserialize_crs("EPSG:4326").unwrap();
         assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4326));
+
+        let crs_value = serde_json::Value::String("EPSG:4326".to_string());
+        let new_crs = deserialize_crs_from_obj(&crs_value).unwrap();
+        assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4326));
+
+        let crs_value = serde_json::Value::String("4269".to_string());
+        let new_crs = deserialize_crs_from_obj(&crs_value).unwrap();
+        assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4269));
     }
 }
