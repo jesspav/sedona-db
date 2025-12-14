@@ -29,7 +29,9 @@ thread_local! {
     /// Keeping the cache small to avoid excessive memory usage in multi-threaded contexts
     /// with json values.
     static CRS_CACHE: RefCell<LruCache<String, Crs>> =
-        RefCell::new(LruCache::new(NonZeroUsize::new(10).unwrap()));
+        // We should consider making the size of the cache configurable
+        // given the memory vs cpu performance trade-offs.
+        RefCell::new(LruCache::new(NonZeroUsize::new(50).unwrap()));
 }
 
 /// Deserialize a specific GeoArrow "crs" value
