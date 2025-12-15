@@ -61,7 +61,7 @@ pub fn deserialize_crs(crs_str: &str) -> Result<Crs> {
         Some(Arc::new(projjson) as Arc<dyn CoordinateReferenceSystem + Send + Sync>)
     };
 
-    // Cache the result
+    // Cache result
     CRS_CACHE.with(|cache| {
         cache.borrow_mut().put(crs_str.to_string(), crs.clone());
     });
