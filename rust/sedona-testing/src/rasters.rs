@@ -45,9 +45,9 @@ pub fn generate_test_rasters(
             upperleft_x: i as f64 + 1.0,
             upperleft_y: i as f64 + 2.0,
             scale_x: i as f64 * 0.1,
-            scale_y: i as f64 * 0.2,
-            skew_x: i as f64 * 0.3,
-            skew_y: i as f64 * 0.4,
+            scale_y: i as f64 * -0.2,
+            skew_x: i as f64 * 0.03,
+            skew_y: i as f64 * 0.04,
         };
         builder.start_raster(&raster_metadata, Some(&crs))?;
         builder.start_band(BandMetadata {
@@ -411,9 +411,9 @@ mod tests {
             assert_eq!(metadata.upper_left_x(), i as f64 + 1.0);
             assert_eq!(metadata.upper_left_y(), i as f64 + 2.0);
             assert_eq!(metadata.scale_x(), (i as f64) * 0.1);
-            assert_eq!(metadata.scale_y(), (i as f64) * 0.2);
-            assert_eq!(metadata.skew_x(), (i as f64) * 0.3);
-            assert_eq!(metadata.skew_y(), (i as f64) * 0.4);
+            assert_eq!(metadata.scale_y(), (i as f64) * -0.2);
+            assert_eq!(metadata.skew_x(), (i as f64) * 0.03);
+            assert_eq!(metadata.skew_y(), (i as f64) * 0.04);
 
             let bands = raster.bands();
             let band = bands.band(1).unwrap();

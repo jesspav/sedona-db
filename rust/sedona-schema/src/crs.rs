@@ -15,38 +15,85 @@
 // specific language governing permissions and limitations
 // under the License.
 use datafusion_common::{DataFusionError, Result};
+use lru::LruCache;
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use serde_json::Value;
 
+thread_local! {
+    /// Thread-local LRU cache for CRS deserialization (one cache per thread)
+    /// Keeping the cache small to avoid excessive memory usage in multi-threaded contexts
+    /// with json values.
+    static CRS_CACHE: RefCell<LruCache<String, Crs>> =
+        // We should consider making the size of the cache configurable
+        // given the memory vs cpu performance trade-offs.
+        RefCell::new(LruCache::new(NonZeroUsize::new(50).unwrap()));
+}
+
 /// Deserialize a specific GeoArrow "crs" value
 ///
 /// Currently the only CRS types supported are PROJJSON and authority:code
 /// where the authority and code are well-known lon/lat (WGS84) codes.
-pub fn deserialize_crs(crs: &Value) -> Result<Crs> {
-    if crs.is_null() {
+pub fn deserialize_crs(crs_str: &str) -> Result<Crs> {
+    if crs_str.is_empty() {
         return Ok(None);
     }
 
+    // Check cache first
+    let cached_result = CRS_CACHE.with(|cache| cache.borrow().peek(crs_str).cloned());
+
+    if let Some(cached) = cached_result {
+        return Ok(cached);
+    }
+
     // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
-    if LngLat::is_value_lnglat(crs) {
-        return Ok(lnglat());
+    let crs = if LngLat::is_str_lnglat(crs_str) {
+        lnglat()
+    } else if AuthorityCode::is_authority_code(crs_str) {
+        AuthorityCode::crs(crs_str)
+    } else {
+        // Try to parse as PROJJSON string
+        let projjson: ProjJSON = crs_str.parse()?;
+        Some(Arc::new(projjson) as Arc<dyn CoordinateReferenceSystem + Send + Sync>)
+    };
+
+    // Cache result
+    CRS_CACHE.with(|cache| {
+        cache.borrow_mut().put(crs_str.to_string(), crs.clone());
+    });
+
+    Ok(crs)
+}
+
+/// Deserialize a CRS from a serde_json::Value object
+pub fn deserialize_crs_from_obj(crs_value: &serde_json::Value) -> Result<Crs> {
+    if crs_value.is_null() {
+        return Ok(None);
     }
 
-    if AuthorityCode::is_authority_code(crs) {
-        return Ok(AuthorityCode::crs(crs.as_str().unwrap().to_string()));
+    if let Some(crs_str) = crs_value.as_str() {
+        // Handle JSON strings "OGC:CRS84" and "EPSG:4326"
+        if LngLat::is_str_lnglat(crs_str) {
+            return Ok(lnglat());
+        }
+
+        if AuthorityCode::is_authority_code(crs_str) {
+            return Ok(AuthorityCode::crs(crs_str));
+        }
     }
 
-    let projjson = if let Some(string) = crs.as_str() {
+    let projjson = if let Some(string) = crs_value.as_str() {
         // Handle the geopandas bug where it exported stringified projjson.
         // This could in the future handle other stringified versions with some
         // auto detection logic.
         string.parse()?
     } else {
         // Handle the case where Value is already an object
-        ProjJSON::try_new(crs.clone())?
+        ProjJSON::try_new(crs_value.clone())?
     };
 
     Ok(Some(Arc::new(projjson)))
@@ -137,8 +184,7 @@ struct LngLat {}
 impl LngLat {
     pub fn crs() -> Crs {
         Crs::Some(Arc::new(AuthorityCode {
-            authority: "OGC".to_string(),
-            code: "CRS84".to_string(),
+            auth_code: "OGC:CRS84".to_string(),
         }))
     }
 
@@ -150,12 +196,8 @@ impl LngLat {
         }
     }
 
-    pub fn is_value_lnglat(value: &Value) -> bool {
-        if let Some(string_value) = value.as_str() {
-            Self::is_authority_code_lnglat(string_value)
-        } else {
-            false
-        }
+    pub fn is_str_lnglat(string_value: &str) -> bool {
+        Self::is_authority_code_lnglat(string_value)
     }
 
     pub fn is_authority_code_lnglat(string_value: &str) -> bool {
@@ -170,43 +212,33 @@ impl LngLat {
 /// Implementation of an authority:code CoordinateReferenceSystem
 #[derive(Debug)]
 struct AuthorityCode {
-    authority: String,
-    code: String,
+    auth_code: String,
 }
 
 /// Implementation of an authority:code
 impl AuthorityCode {
     /// Create a Crs from an authority:code string
     /// Example: "EPSG:4269"
-    pub fn crs(auth_code: String) -> Crs {
-        let (authority, code) = Self::split_auth_code(&auth_code).unwrap();
-        Crs::Some(Arc::new(AuthorityCode { authority, code }))
+    pub fn crs(auth_code: &str) -> Crs {
+        let ac = if Self::validate_epsg_code(auth_code) {
+            format!("EPSG:{}", auth_code)
+        } else {
+            auth_code.to_string()
+        };
+        Some(Arc::new(AuthorityCode { auth_code: ac }))
     }
 
     /// Check if a Value is an authority:code string
     /// Note: this can be expanded to more types in the future
-    pub fn is_authority_code(value: &Value) -> bool {
-        if let Some(string_value) = value.as_str() {
-            match Self::split_auth_code(string_value) {
-                Some((authority, code)) => {
-                    return Self::validate_authority(&authority) && Self::validate_code(&code)
-                }
-                None => return false,
-            }
-        }
-
-        false
-    }
-
-    /// Split an authority:code string into its components
-    fn split_auth_code(auth_code: &str) -> Option<(String, String)> {
-        let parts: Vec<&str> = auth_code.split(':').collect();
-        if parts.len() == 2 {
-            Some((parts[0].to_string(), parts[1].to_string()))
-        } else if parts.len() == 1 && Self::validate_epsg_code(auth_code) {
-            Some(("EPSG".to_string(), auth_code.to_string()))
+    pub fn is_authority_code(auth_code: &str) -> bool {
+        // Expecting <authority>:<code> format
+        if let Some(colon_pos) = auth_code.find(':') {
+            let authority = &auth_code[..colon_pos];
+            let code = &auth_code[colon_pos + 1..];
+            Self::validate_authority(authority) && Self::validate_code(code)
         } else {
-            None
+            // No colon, check if it's a valid EPSG code
+            Self::validate_epsg_code(auth_code)
         }
     }
 
@@ -236,35 +268,42 @@ impl AuthorityCode {
 impl CoordinateReferenceSystem for AuthorityCode {
     /// Convert to a JSON string
     fn to_json(&self) -> String {
-        format!("\"{}:{}\"", self.authority, self.code)
+        let mut result = String::with_capacity(self.auth_code.len() + 2);
+        result.push('"');
+        result.push_str(&self.auth_code);
+        result.push('"');
+        result
     }
 
     /// Convert to an authority code string
     fn to_authority_code(&self) -> Result<Option<String>> {
-        Ok(Some(format!("{}:{}", self.authority, self.code)))
+        Ok(Some(self.to_crs_string()))
     }
 
     /// Check equality with another CoordinateReferenceSystem
     fn crs_equals(&self, other: &dyn CoordinateReferenceSystem) -> bool {
-        match (other.to_authority_code(), self.to_authority_code()) {
-            (Ok(Some(other_ac)), Ok(Some(this_ac))) => other_ac == this_ac,
-            (_, _) => false,
+        match other.to_authority_code() {
+            Ok(Some(other_ac)) => other_ac == self.auth_code,
+            _ => false,
         }
     }
 
     /// Get the SRID if authority is EPSG
     fn srid(&self) -> Result<Option<u32>> {
-        if self.authority.eq_ignore_ascii_case("EPSG") {
-            Ok(self.code.parse::<u32>().ok())
-        } else if LngLat::is_lnglat(self) {
-            Ok(LngLat::srid())
-        } else {
-            Ok(None)
+        if LngLat::is_authority_code_lnglat(&self.auth_code) {
+            return Ok(LngLat::srid());
         }
+        if let Some(pos) = self.auth_code.find(':') {
+            if self.auth_code[..pos].eq_ignore_ascii_case("EPSG") {
+                return Ok(self.auth_code[pos + 1..].parse::<u32>().ok());
+            }
+        }
+        Ok(None)
     }
 
+    /// Convert to a CRS string
     fn to_crs_string(&self) -> String {
-        format!("{}:{}", self.authority, self.code)
+        self.auth_code.clone()
     }
 }
 
@@ -337,8 +376,10 @@ impl CoordinateReferenceSystem for ProjJSON {
         if let Some(authority_code) = authority_code_opt {
             if LngLat::is_authority_code_lnglat(&authority_code) {
                 return Ok(LngLat::srid());
-            } else if let Some((_, code)) = AuthorityCode::split_auth_code(&authority_code) {
-                return Ok(code.parse::<u32>().ok());
+            } else if let Some(colon_pos) = authority_code.find(':') {
+                if authority_code[..colon_pos].eq_ignore_ascii_case("EPSG") {
+                    return Ok(authority_code[colon_pos + 1..].parse::<u32>().ok());
+                }
             }
         }
 
@@ -359,22 +400,27 @@ mod test {
 
     #[test]
     fn deserialize() {
-        let value_auth_code_4326: Value = serde_json::from_str(r#""EPSG:4326""#).unwrap();
-        assert_eq!(deserialize_crs(&value_auth_code_4326).unwrap(), lnglat());
+        assert_eq!(deserialize_crs("EPSG:4326").unwrap(), lnglat());
 
-        let value_auth_code_crs84: Value = serde_json::from_str(r#""OGC:CRS84""#).unwrap();
-        assert_eq!(deserialize_crs(&value_auth_code_crs84).unwrap(), lnglat());
+        assert_eq!(deserialize_crs("OGC:CRS84").unwrap(), lnglat());
 
-        let value_projjson: Value = serde_json::from_str(OGC_CRS84_PROJJSON).unwrap();
-        assert_eq!(deserialize_crs(&value_projjson).unwrap(), lnglat());
+        assert_eq!(deserialize_crs(OGC_CRS84_PROJJSON).unwrap(), lnglat());
 
-        let value_gross_unescaped = Value::String(OGC_CRS84_PROJJSON.to_string());
-        assert_eq!(deserialize_crs(&value_gross_unescaped).unwrap(), lnglat());
+        assert!(deserialize_crs("").unwrap().is_none());
 
-        assert!(deserialize_crs(&Value::Null).unwrap().is_none());
+        assert!(deserialize_crs("[]").is_err());
 
-        let value_unsupported: Value = serde_json::from_str("[]").unwrap();
-        assert!(deserialize_crs(&value_unsupported).is_err());
+        let crs_value = serde_json::Value::String("EPSG:4326".to_string());
+        assert_eq!(deserialize_crs_from_obj(&crs_value).unwrap(), lnglat());
+
+        let crs_value = serde_json::Value::String("OGC:CRS84".to_string());
+        assert_eq!(deserialize_crs_from_obj(&crs_value).unwrap(), lnglat());
+
+        let projjson_value: Value = serde_json::from_str(OGC_CRS84_PROJJSON).unwrap();
+        assert_eq!(deserialize_crs_from_obj(&projjson_value).unwrap(), lnglat());
+
+        assert!(deserialize_crs_from_obj(&Value::Null).unwrap().is_none());
+        assert!(deserialize_crs_from_obj(&serde_json::Value::String("[]".to_string())).is_err());
     }
 
     #[test]
@@ -406,8 +452,7 @@ mod test {
     #[test]
     fn crs_authority_code() {
         let auth_code = AuthorityCode {
-            authority: "EPSG".to_string(),
-            code: "4269".to_string(),
+            auth_code: "EPSG:4269".to_string(),
         };
         assert!(auth_code.crs_equals(&auth_code));
         assert!(!auth_code.crs_equals(LngLat::crs().unwrap().as_ref()));
@@ -422,15 +467,13 @@ mod test {
         let json_value = auth_code.to_json();
         assert_eq!(json_value, "\"EPSG:4269\"");
 
-        let auth_code_crs = AuthorityCode::crs("EPSG:4269".to_string());
+        let auth_code_crs = AuthorityCode::crs("EPSG:4269");
         assert_eq!(auth_code_crs, auth_code_crs);
         assert_ne!(auth_code_crs, Crs::None);
 
-        let auth_code_parsed: Result<Value, _> = serde_json::from_str(&json_value);
-        assert!(AuthorityCode::is_authority_code(&auth_code_parsed.unwrap()));
+        assert!(AuthorityCode::is_authority_code("EPSG:4269"));
 
-        let value: Value = serde_json::from_str("\"EPSG:4269\"").unwrap();
-        let new_crs = deserialize_crs(&value).unwrap().unwrap();
+        let new_crs = deserialize_crs("EPSG:4269").unwrap().unwrap();
         assert_eq!(
             new_crs.to_authority_code().unwrap(),
             Some("EPSG:4269".to_string())
@@ -438,16 +481,22 @@ mod test {
         assert_eq!(new_crs.srid().unwrap(), Some(4269));
 
         // Ensure we can also just pass a code here
-        let value: Value = serde_json::from_str("\"4269\"").unwrap();
-        let new_crs = deserialize_crs(&value).unwrap();
+        let new_crs = deserialize_crs("4269").unwrap();
         assert_eq!(
             new_crs.clone().unwrap().to_authority_code().unwrap(),
             Some("EPSG:4269".to_string())
         );
         assert_eq!(new_crs.unwrap().srid().unwrap(), Some(4269));
 
-        let value: Value = serde_json::from_str("\"EPSG:4326\"").unwrap();
-        let new_crs = deserialize_crs(&value).unwrap();
+        let new_crs = deserialize_crs("EPSG:4326").unwrap();
         assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4326));
+
+        let crs_value = serde_json::Value::String("EPSG:4326".to_string());
+        let new_crs = deserialize_crs_from_obj(&crs_value).unwrap();
+        assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4326));
+
+        let crs_value = serde_json::Value::String("4269".to_string());
+        let new_crs = deserialize_crs_from_obj(&crs_value).unwrap();
+        assert_eq!(new_crs.clone().unwrap().srid().unwrap(), Some(4269));
     }
 }

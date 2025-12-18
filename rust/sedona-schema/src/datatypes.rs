@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::fmt::{Debug, Display};
 use std::sync::LazyLock;
 
-use crate::crs::{deserialize_crs, Crs};
+use crate::crs::{deserialize_crs, deserialize_crs_from_obj, Crs};
 use crate::extension_type::ExtensionType;
 use crate::raster::RasterSchema;
 
@@ -312,8 +312,13 @@ fn deserialize_edges_and_crs(value: &Option<String>) -> Result<(Edges, Crs)> {
             };
 
             let crs = match json_value.get("crs") {
-                Some(crs_value) => deserialize_crs(crs_value)?,
-                None => Crs::None,
+                Some(crs_value) => match &crs_value {
+                    Value::Object(_obj) => deserialize_crs_from_obj(crs_value)?,
+                    Value::String(s) => deserialize_crs(s)?,
+                    Value::Number(s) => deserialize_crs(&s.to_string())?,
+                    _ => None,
+                },
+                None => None,
             };
 
             Ok((edges, crs))
@@ -430,8 +435,7 @@ mod tests {
             "Wkb(ogc:crs84)"
         );
 
-        let projjson_value: Value = r#"{}"#.parse().unwrap();
-        let projjson_crs = deserialize_crs(&projjson_value).unwrap();
+        let projjson_crs = deserialize_crs("{}").unwrap();
         assert_eq!(
             SedonaType::Wkb(Edges::Planar, projjson_crs).to_string(),
             "Wkb({...})"

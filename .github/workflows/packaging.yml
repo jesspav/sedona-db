@@ -75,7 +75,7 @@ jobs:
         run: |
           dev/release/run-rat.sh apache-sedona-db-${{ env.VERSION }}.tar.gz
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: source
           retention-days: 7
@@ -98,6 +98,8 @@ jobs:
         with:
           python-version: "3.x"
 
+      - uses: quarto-dev/quarto-actions/setup@v2
+
       - name: Use stable Rust
         id: rust
         run: |
@@ -119,7 +121,7 @@ jobs:
 
       - name: Install dev SedonaDB Python
         run: |
-            pip install python/sedonadb/ -vv
+            pip install "python/sedonadb/[geopandas]" -v
 
       - name: Build documentation
         run: |
@@ -131,7 +133,7 @@ jobs:
           tar -czf docs.tgz sedona-db-docs
 
       - name: Upload docs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: docs
           retention-days: 2
@@ -163,7 +165,7 @@ jobs:
 
     steps:
       - name: Get all artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
 

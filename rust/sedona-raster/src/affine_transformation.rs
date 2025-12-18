@@ -18,6 +18,13 @@
 use crate::traits::RasterRef;
 use arrow_schema::ArrowError;
 
+/// Computes the rotation angle (in radians) of the raster based on its geotransform metadata.
+#[inline]
+pub fn rotation(raster: &dyn RasterRef) -> f64 {
+    let metadata = raster.metadata();
+    (-metadata.skew_x()).atan2(metadata.scale_x())
+}
+
 /// Performs an affine transformation on the provided x and y coordinates based on the geotransform
 /// data in the raster.
 ///
@@ -75,6 +82,9 @@ pub fn to_raster_coordinate(
 mod tests {
     use super::*;
     use crate::traits::{MetadataRef, RasterMetadata};
+    use approx::assert_relative_eq;
+    use std::f64::consts::FRAC_1_SQRT_2;
+    use std::f64::consts::PI;
 
     struct TestRaster {
         metadata: RasterMetadata,
@@ -90,6 +100,34 @@ mod tests {
         fn bands(&self) -> &dyn crate::traits::BandsRef {
             unimplemented!()
         }
+    }
+
+    #[test]
+    fn test_rotation() {
+        // 0 degree rotation -> gt[1.0, 0.0, 0.0, -1.0]
+        let raster = rotation_raster(1.0, -1.0, 0.0, 0.0);
+        let rot = rotation(&raster);
+        assert_eq!(rot, 0.0);
+
+        // pi/2 -> gt[0.0, -1.0, 1.0, 0.0]
+        let raster = rotation_raster(0.0, 0.0, -1.0, 1.0);
+        let rot = rotation(&raster);
+        assert_relative_eq!(rot, PI / 2.0, epsilon = 1e-6); // 90 degrees in radians
+
+        // pi/4 -> gt[0.70710678, -0.70710678, 0.70710678, 0.70710678]
+        let raster = rotation_raster(FRAC_1_SQRT_2, FRAC_1_SQRT_2, -FRAC_1_SQRT_2, FRAC_1_SQRT_2);
+        let rot = rotation(&raster);
+        assert_relative_eq!(rot, PI / 4.0, epsilon = 1e-6); // 45 degrees in radians
+
+        // pi/3 -> gt[0.5, -0.866025, 0.866025, 0.5]
+        let raster = rotation_raster(0.5, 0.5, -0.866025, 0.866025);
+        let rot = rotation(&raster);
+        assert_relative_eq!(rot, PI / 3.0, epsilon = 1e-6); // 60 degrees in radians
+
+        // pi -> gt[-1.0, 0.0, 0.0, -1.0]
+        let raster = rotation_raster(-1.0, -1.0, 0.0, 0.0);
+        let rot = rotation(&raster);
+        assert_relative_eq!(rot, -PI, epsilon = 1e-6); // 180 degrees in radians
     }
 
     #[test]
@@ -176,5 +214,20 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("determinant is zero."));
+    }
+
+    fn rotation_raster(scale_x: f64, scale_y: f64, skew_x: f64, skew_y: f64) -> TestRaster {
+        TestRaster {
+            metadata: RasterMetadata {
+                width: 10,
+                height: 20,
+                upperleft_x: 0.0,
+                upperleft_y: 0.0,
+                scale_x,
+                scale_y,
+                skew_x,
+                skew_y,
+            },
+        }
     }
 }
