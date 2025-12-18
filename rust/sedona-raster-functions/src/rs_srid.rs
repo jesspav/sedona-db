@@ -107,7 +107,7 @@ impl SedonaScalarKernel for RsSrid {
                             builder.append_value(0);
                         }
                         Some(crs_str) => {
-                            let crs = deserialize_crs(&crs_str).map_err(|e| {
+                            let crs = deserialize_crs(crs_str).map_err(|e| {
                                 DataFusionError::Execution(format!(
                                     "Failed to deserialize CRS: {}",
                                     e
@@ -174,7 +174,7 @@ impl SedonaScalarKernel for RsCrs {
                 Some(raster) => match raster.crs() {
                     None => builder.append_null(),
                     Some(crs_str) => {
-                        let crs = deserialize_crs(&crs_str).map_err(|e| {
+                        let crs = deserialize_crs(crs_str).map_err(|e| {
                             DataFusionError::Execution(format!("Failed to deserialize CRS: {}", e))
                         })?;
 
