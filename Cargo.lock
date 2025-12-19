@@ -4871,6 +4871,8 @@ dependencies = [
 name = "sedona-expr"
 version = "0.3.0"
 dependencies = [
+ "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
  "datafusion-common",
  "datafusion-expr",
@@ -4905,6 +4907,7 @@ name = "sedona-functions"
 version = "0.3.0"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "arrow-json",
  "arrow-schema",
  "criterion",
