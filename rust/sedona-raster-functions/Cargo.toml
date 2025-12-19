@@ -41,6 +41,7 @@ sedona-expr = { workspace = true }
 sedona-geometry = { workspace = true }
 sedona-raster = { workspace = true }
 sedona-schema = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
