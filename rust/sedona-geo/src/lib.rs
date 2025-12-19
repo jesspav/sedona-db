@@ -19,6 +19,7 @@ pub mod register;
 mod st_area;
 mod st_buffer;
 mod st_centroid;
+pub mod st_concavehull;
 mod st_distance;
 mod st_dwithin;
 mod st_intersection_agg;
