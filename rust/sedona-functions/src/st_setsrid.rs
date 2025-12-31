@@ -14,16 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-use std::{sync::Arc, vec};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, OnceLock},
+};
 
-use arrow_array::builder::BinaryBuilder;
+use arrow_array::{
+    builder::{BinaryBuilder, NullBufferBuilder},
+    ArrayRef, StringViewArray,
+};
+use arrow_buffer::NullBuffer;
 use arrow_schema::DataType;
-use datafusion_common::{error::Result, DataFusionError, ScalarValue};
+use datafusion_common::{
+    cast::{as_int64_array, as_string_view_array},
+    error::Result,
+    DataFusionError, ScalarValue,
+};
 use datafusion_expr::{
     scalar_doc_sections::DOC_SECTION_OTHER, ColumnarValue, Documentation, Volatility,
 };
 use sedona_common::sedona_internal_err;
-use sedona_expr::scalar_udf::{ScalarKernelRef, SedonaScalarKernel, SedonaScalarUDF};
+use sedona_expr::{
+    item_crs::make_item_crs,
+    scalar_udf::{ScalarKernelRef, SedonaScalarKernel, SedonaScalarUDF},
+};
 use sedona_geometry::transform::CrsEngine;
 use sedona_schema::{crs::deserialize_crs, datatypes::SedonaType, matchers::ArgMatcher};
 
@@ -124,18 +138,39 @@ impl SedonaScalarKernel for STSetSRID {
         determine_return_type(args, scalar_args, self.engine.as_ref())
     }
 
-    fn invoke_batch(
+    fn invoke_batch_from_args(
         &self,
-        _arg_types: &[SedonaType],
+        arg_types: &[SedonaType],
         args: &[ColumnarValue],
+        return_type: &SedonaType,
+        _num_rows: usize,
     ) -> Result<ColumnarValue> {
-        Ok(args[0].clone())
+        let item_crs_matcher = ArgMatcher::is_item_crs();
+        if item_crs_matcher.match_type(return_type) {
+            let normalized_crs_value = normalize_crs_array(&args[1], self.engine.as_ref())?;
+            make_item_crs(
+                &arg_types[0],
+                args[0].clone(),
+                &ColumnarValue::Array(normalized_crs_value),
+                crs_input_nulls(&args[1]),
+            )
+        } else {
+            Ok(args[0].clone())
+        }
     }
 
     fn return_type(&self, _args: &[SedonaType]) -> Result<Option<SedonaType>> {
         sedona_internal_err!(
             "Should not be called because return_type_from_args_and_scalars() is implemented"
         )
+    }
+
+    fn invoke_batch(
+        &self,
+        _arg_types: &[SedonaType],
+        _args: &[ColumnarValue],
+    ) -> Result<ColumnarValue> {
+        sedona_internal_err!("Should not be called because invoke_batch_from_args() is implemented")
     }
 }
 
@@ -159,12 +194,25 @@ impl SedonaScalarKernel for STSetCRS {
         determine_return_type(args, scalar_args, self.engine.as_ref())
     }
 
-    fn invoke_batch(
+    fn invoke_batch_from_args(
         &self,
-        _arg_types: &[SedonaType],
+        arg_types: &[SedonaType],
         args: &[ColumnarValue],
+        return_type: &SedonaType,
+        _num_rows: usize,
     ) -> Result<ColumnarValue> {
-        Ok(args[0].clone())
+        let item_crs_matcher = ArgMatcher::is_item_crs();
+        if item_crs_matcher.match_type(return_type) {
+            let normalized_crs_value = normalize_crs_array(&args[1], self.engine.as_ref())?;
+            make_item_crs(
+                &arg_types[0],
+                args[0].clone(),
+                &ColumnarValue::Array(normalized_crs_value),
+                crs_input_nulls(&args[1]),
+            )
+        } else {
+            Ok(args[0].clone())
+        }
     }
 
     fn return_type(&self, _args: &[SedonaType]) -> Result<Option<SedonaType>> {
@@ -172,24 +220,14 @@ impl SedonaScalarKernel for STSetCRS {
             "Should not be called because return_type_from_args_and_scalars() is implemented"
         )
     }
-}
 
-/// Validate a CRS string
-///
-/// If an engine is provided, the engine will be used to validate the CRS. If absent,
-/// the CRS will only be validated using the basic checks in [deserialize_crs].
-pub fn validate_crs(
-    crs: &str,
-    maybe_engine: Option<&Arc<dyn CrsEngine + Send + Sync>>,
-) -> Result<()> {
-    if let Some(engine) = maybe_engine {
-        engine
-            .as_ref()
-            .get_transform_crs_to_crs(crs, crs, None, "")
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+    fn invoke_batch(
+        &self,
+        _arg_types: &[SedonaType],
+        _args: &[ColumnarValue],
+    ) -> Result<ColumnarValue> {
+        sedona_internal_err!("Should not be called because invoke_batch_from_args() is implemented")
     }
-
-    Ok(())
 }
 
 fn determine_return_type(
@@ -209,7 +247,7 @@ fn determine_return_type(
                         None
                     } else {
                         validate_crs(&crs, maybe_engine)?;
-                        deserialize_crs(&serde_json::Value::String(crs))?
+                        deserialize_crs(&crs)?
                     }
                 }
                 None => None,
@@ -223,6 +261,8 @@ fn determine_return_type(
                 _ => {}
             }
         }
+    } else {
+        return Ok(Some(SedonaType::new_item_crs(&args[0])?));
     }
 
     sedona_internal_err!("Unexpected argument types: {}, {}", args[0], args[1])
@@ -282,7 +322,7 @@ impl SedonaScalarKernel for SRIDifiedKernel {
                     None
                 } else {
                     validate_crs(&crs, None)?;
-                    deserialize_crs(&serde_json::Value::String(crs))?
+                    deserialize_crs(&crs)?
                 }
             }
             Ok(ScalarValue::Utf8(None)) => None,
@@ -341,10 +381,144 @@ impl SedonaScalarKernel for SRIDifiedKernel {
     }
 }
 
+static SINGLE_NULL_BUFFER: OnceLock<NullBuffer> = OnceLock::new();
+
+fn crs_input_nulls(crs_value: &ColumnarValue) -> Option<&NullBuffer> {
+    match crs_value {
+        ColumnarValue::Array(array) => array.nulls(),
+        ColumnarValue::Scalar(scalar_value) => {
+            if scalar_value.is_null() {
+                let null_buffer = SINGLE_NULL_BUFFER.get_or_init(|| {
+                    let mut builder = NullBufferBuilder::new(1);
+                    builder.append(false);
+                    builder
+                        .finish()
+                        .expect("Failed to build single null buffer")
+                });
+                Some(null_buffer)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Given an SRID or CRS array, compute the final crs array to put in the item_crs struct
+///
+/// For SRID arrays, this is `EPSG:<srid>` except for the SRID of 0 (which maps
+/// to a null value in the CRS array) and 4326 (which maps to a value of OGC:CRS84
+/// in the CRS array).
+///
+/// For CRS arrays of strings, this function attempts to abbreviate any inputs. For example,
+/// PROJJSON input will attempt to be abbreviated to authority:code if possible (or left
+/// as is otherwise). The special value "0" maps to a null value in the CRS array.
+fn normalize_crs_array(
+    crs_value: &ColumnarValue,
+    maybe_engine: Option<&Arc<dyn CrsEngine + Send + Sync>>,
+) -> Result<ArrayRef> {
+    match crs_value.data_type() {
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => {
+            // Local cache to avoid re-validating inputs
+            let mut known_valid = HashSet::new();
+
+            let int_value = crs_value.cast_to(&DataType::Int64, None)?;
+            let int_array_ref = ColumnarValue::values_to_arrays(&[int_value])?;
+            let int_array = as_int64_array(&int_array_ref[0])?;
+            let utf8_view_array = int_array
+                .iter()
+                .map(|maybe_srid| -> Result<Option<String>> {
+                    if let Some(srid) = maybe_srid {
+                        if srid == 0 {
+                            return Ok(None);
+                        } else if srid == 4326 {
+                            return Ok(Some("OGC:CRS84".to_string()));
+                        }
+
+                        let auth_code = format!("EPSG:{srid}");
+                        if !known_valid.contains(&srid) {
+                            validate_crs(&auth_code, maybe_engine)?;
+                            known_valid.insert(srid);
+                        }
+
+                        Ok(Some(auth_code))
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .collect::<Result<StringViewArray>>()?;
+
+            Ok(Arc::new(utf8_view_array))
+        }
+        _ => {
+            let mut known_abbreviated = HashMap::<String, String>::new();
+
+            let string_value = crs_value.cast_to(&DataType::Utf8View, None)?;
+            let string_array_ref = ColumnarValue::values_to_arrays(&[string_value])?;
+            let string_view_array = as_string_view_array(&string_array_ref[0])?;
+            let utf8_view_array = string_view_array
+                .iter()
+                .map(|maybe_crs| -> Result<Option<String>> {
+                    if let Some(crs_str) = maybe_crs {
+                        if crs_str == "0" {
+                            return Ok(None);
+                        }
+
+                        if let Some(abbreviated_crs) = known_abbreviated.get(crs_str) {
+                            Ok(Some(abbreviated_crs.clone()))
+                        } else if let Some(crs) = deserialize_crs(crs_str)? {
+                            let abbreviated_crs =
+                                if let Some(auth_code) = crs.to_authority_code()? {
+                                    auth_code
+                                } else {
+                                    crs_str.to_string()
+                                };
+
+                            known_abbreviated.insert(crs.to_string(), abbreviated_crs.clone());
+                            Ok(Some(abbreviated_crs))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .collect::<Result<StringViewArray>>()?;
+
+            Ok(Arc::new(utf8_view_array))
+        }
+    }
+}
+
+/// Validate a CRS string
+///
+/// If an engine is provided, the engine will be used to validate the CRS. If absent,
+/// the CRS will only be validated using the basic checks in [deserialize_crs].
+pub fn validate_crs(
+    crs: &str,
+    maybe_engine: Option<&Arc<dyn CrsEngine + Send + Sync>>,
+) -> Result<()> {
+    if let Some(engine) = maybe_engine {
+        engine
+            .as_ref()
+            .get_transform_crs_to_crs(crs, crs, None, "")
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use std::rc::Rc;
 
+    use arrow_array::{create_array, ArrayRef};
     use arrow_schema::Field;
     use datafusion_common::config::ConfigOptions;
     use datafusion_expr::{ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF};
@@ -353,7 +527,11 @@ mod test {
         crs::lnglat,
         datatypes::{Edges, WKB_GEOMETRY},
     };
-    use sedona_testing::{compare::assert_value_equal, create::create_scalar_value};
+    use sedona_testing::{
+        compare::assert_value_equal,
+        create::{create_array, create_array_item_crs, create_scalar_value},
+        testers::ScalarUdfTester,
+    };
 
     use super::*;
 
@@ -459,6 +637,106 @@ mod test {
         )
         .unwrap_err();
         assert_eq!(err.message(), "Unknown geometry error")
+    }
+
+    #[test]
+    fn udf_item_srid() {
+        let tester = ScalarUdfTester::new(
+            st_set_srid_udf().into(),
+            vec![WKB_GEOMETRY, SedonaType::Arrow(DataType::Int32)],
+        );
+        tester.assert_return_type(SedonaType::new_item_crs(&WKB_GEOMETRY).unwrap());
+
+        let geometry_array = create_array(
+            &[
+                Some("POINT (0 1)"),
+                Some("POINT (2 3)"),
+                Some("POINT (4 5)"),
+                Some("POINT (6 7)"),
+                Some("POINT (8 9)"),
+            ],
+            &WKB_GEOMETRY,
+        );
+        let crs_array =
+            create_array!(Int32, [Some(4326), Some(3857), Some(3857), Some(0), None]) as ArrayRef;
+
+        let result = tester
+            .invoke_array_array(geometry_array, crs_array)
+            .unwrap();
+        assert_eq!(
+            &result,
+            &create_array_item_crs(
+                &[
+                    Some("POINT (0 1)"),
+                    Some("POINT (2 3)"),
+                    Some("POINT (4 5)"),
+                    Some("POINT (6 7)"),
+                    None,
+                ],
+                [
+                    Some("OGC:CRS84"),
+                    Some("EPSG:3857"),
+                    Some("EPSG:3857"),
+                    None,
+                    None
+                ],
+                &WKB_GEOMETRY
+            )
+        );
+    }
+
+    #[test]
+    fn udf_item_crs() {
+        let tester = ScalarUdfTester::new(
+            st_set_crs_udf().into(),
+            vec![WKB_GEOMETRY, SedonaType::Arrow(DataType::Utf8)],
+        );
+        tester.assert_return_type(SedonaType::new_item_crs(&WKB_GEOMETRY).unwrap());
+
+        let geometry_array = create_array(
+            &[
+                Some("POINT (0 1)"),
+                Some("POINT (2 3)"),
+                Some("POINT (4 5)"),
+                Some("POINT (6 7)"),
+                Some("POINT (8 9)"),
+            ],
+            &WKB_GEOMETRY,
+        );
+        let crs_array = create_array!(
+            Utf8,
+            [
+                Some("EPSG:4326"),
+                Some("EPSG:3857"),
+                Some("EPSG:3857"),
+                Some("0"),
+                None
+            ]
+        ) as ArrayRef;
+
+        let result = tester
+            .invoke_array_array(geometry_array, crs_array)
+            .unwrap();
+        assert_eq!(
+            &result,
+            &create_array_item_crs(
+                &[
+                    Some("POINT (0 1)"),
+                    Some("POINT (2 3)"),
+                    Some("POINT (4 5)"),
+                    Some("POINT (6 7)"),
+                    None
+                ],
+                [
+                    Some("OGC:CRS84"),
+                    Some("EPSG:3857"),
+                    Some("EPSG:3857"),
+                    None,
+                    None
+                ],
+                &WKB_GEOMETRY
+            )
+        );
     }
 
     fn call_udf(

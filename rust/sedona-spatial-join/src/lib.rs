@@ -21,6 +21,7 @@ pub mod exec;
 mod index;
 pub mod operand_evaluator;
 pub mod optimizer;
+pub mod partitioning;
 pub mod refine;
 pub mod spatial_predicate;
 mod stream;
@@ -28,6 +29,11 @@ pub mod utils;
 
 pub use exec::SpatialJoinExec;
 pub use optimizer::register_spatial_join_optimizer;
+
+// Re-export types needed for external usage (e.g., in Comet)
+pub use build_index::build_index;
+pub use index::{SpatialIndex, SpatialJoinBuildMetrics};
+pub use spatial_predicate::SpatialPredicate;
 
 // Re-export option types from sedona-common for convenience
 pub use sedona_common::option::*;

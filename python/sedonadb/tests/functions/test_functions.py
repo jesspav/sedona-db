@@ -262,7 +262,30 @@ def test_st_buffer(eng, geom, dist, expected_area):
     eng.assert_query_result(
         f"SELECT ST_Area(ST_Buffer({geom_or_null(geom)}, {val_or_null(dist)}))",
         expected_area,
-        numeric_epsilon=1e-9,
+        # geos passes with 1e-9, but geo needs it as high as 1e-3
+        numeric_epsilon=1e-3,
+    )
+
+
+@pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
+@pytest.mark.parametrize(
+    ("geom", "expected"),
+    [
+        ("POINT EMPTY", "POLYGON EMPTY"),
+        ("LINESTRING EMPTY", "POLYGON EMPTY"),
+        ("POLYGON EMPTY", "POLYGON EMPTY"),
+        ("MULTIPOINT EMPTY", "POLYGON EMPTY"),
+        ("MULTILINESTRING EMPTY", "POLYGON EMPTY"),
+        ("MULTIPOLYGON EMPTY", "POLYGON EMPTY"),
+        ("GEOMETRYCOLLECTION EMPTY", "POLYGON EMPTY"),
+    ],
+)
+def test_st_buffer_empty(eng, geom, expected):
+    eng = SedonaDB.create_or_skip()
+
+    eng.assert_query_result(
+        f"SELECT ST_Buffer({geom_or_null(geom)}, {2.0})",
+        expected,
     )
 
 
@@ -609,6 +632,160 @@ def test_st_issimple(eng, geom, expected):
 def test_st_isvalid(eng, geom, expected):
     eng = eng.create_or_skip()
     eng.assert_query_result(f"SELECT ST_IsValid({geom_or_null(geom)})", expected)
+
+
+@pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
+@pytest.mark.parametrize(
+    ("geom", "pctconvex", "expected"),
+    [
+        (None, None, None),
+        ("POINT EMPTY", 0.2, "POLYGON EMPTY"),
+        ("POINT (2.5 3.1)", 0.1, "POINT (2.5 3.1)"),
+        ("LINESTRING EMPTY", 0.3, "POLYGON EMPTY"),
+        (
+            "LINESTRING (50 50, 150 150, 150 50)",
+            0.1,
+            "POLYGON ((50 50, 150 150, 150 50, 50 50))",
+        ),
+        (
+            "LINESTRING (100 150, 50 60, 70 80, 160 170)",
+            0.3,
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+        ),
+        ("POLYGON EMPTY", 0.3, "POLYGON EMPTY"),
+        (
+            "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))",
+            0.1,
+            "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))",
+        ),
+        ("MULTIPOINT EMPTY", 0.3, "POLYGON EMPTY"),
+        (
+            "MULTIPOINT ((0 0), (10 0), (0 10), (10 10), (5 5))",
+            1.0,
+            "POLYGON ((0 0, 0 10, 10 10, 10 0, 0 0))",
+        ),
+        (
+            "MULTIPOINT ((0 0), (10 0), (10 10), (0 10), (2 2), (8 2), (8 8), (2 8))",
+            0.1,
+            "POLYGON ((2 8, 0 10, 10 10, 8 8, 10 0, 8 2, 0 0, 2 2, 2 8))",
+        ),
+        (
+            "GEOMETRYCOLLECTION(POINT(40 10),LINESTRING(10 10,20 20,10 40),POLYGON((40 40,20 45,45 30,40 40)))",
+            0.1,
+            "POLYGON ((20 20, 10 40, 20 45, 40 40, 45 30, 40 10, 10 10, 20 20))",
+        ),
+    ],
+)
+def test_st_concavehull(eng, geom, pctconvex, expected):
+    eng = eng.create_or_skip()
+    if expected is None:
+        eng.assert_query_result(
+            f"SELECT ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)})",
+            expected,
+        )
+    elif "EMPTY" in expected.upper():
+        eng.assert_query_result(
+            f"SELECT ST_IsEmpty(ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)}))",
+            True,
+        )
+    else:
+        eng.assert_query_result(
+            f"SELECT ST_Equals(ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)}), {geom_or_null(expected)})",
+            True,
+        )
+
+
+@pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
+@pytest.mark.parametrize(
+    ("geom", "pctconvex", "allow_holes", "expected"),
+    [
+        (None, None, None, None),
+        ("POINT EMPTY", 0.1, True, "POLYGON EMPTY"),
+        ("POINT (2.5 3.1)", 0.1, True, "POINT (2.5 3.1)"),
+        ("LINESTRING EMPTY", 0.2, True, "POLYGON EMPTY"),
+        (
+            "LINESTRING (100 150, 50 60, 70 80, 160 170)",
+            0.2,
+            True,
+            "POLYGON ((50 60, 100 150, 160 170, 70 80, 50 60))",
+        ),
+        # The following cases are the remaining ones from the Rust example
+        (
+            "LINESTRING (100 150, 50 60, 70 80, 160 170)",
+            0.2,
+            False,
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+        ),
+        (
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+            0.2,
+            False,
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+        ),
+        (
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+            0.2,
+            True,
+            "POLYGON ((70 80, 50 60, 100 150, 160 170, 70 80))",
+        ),
+        ("MULTIPOINT EMPTY", 0.2, False, "POLYGON EMPTY"),
+        (
+            "MULTIPOINT ((10 40), (40 30), (20 20), (30 10))",
+            0.1,
+            True,
+            "POLYGON ((40 30, 30 10, 20 20, 10 40, 40 30))",
+        ),
+        (
+            "MULTIPOINT ((10 40), (40 30), (20 20), (30 10))",
+            0.1,
+            False,
+            "POLYGON ((20 20, 10 40, 40 30, 30 10, 20 20))",
+        ),
+        ("MULTILINESTRING EMPTY", 0.1, False, "POLYGON EMPTY"),
+        (
+            "MULTILINESTRING ((10 10, 20 20, 10 40), (40 40, 30 30, 40 20, 30 10))",
+            0.1,
+            True,
+            "POLYGON ((30 30, 40 40, 40 20, 30 10, 10 10, 20 20, 10 40, 30 30))",
+        ),
+        (
+            "MULTILINESTRING ((10 10, 20 20, 10 40), (40 40, 30 30, 40 20, 30 10))",
+            0.1,
+            False,
+            "POLYGON ((20 20, 10 40, 30 30, 40 40, 40 20, 30 10, 10 10, 20 20))",
+        ),
+        ("GEOMETRYCOLLECTION EMPTY", 0.1, True, "POLYGON EMPTY"),
+        (
+            "GEOMETRYCOLLECTION (MULTIPOINT((1 1), (3 3)), POINT(5 6), LINESTRING(4 5, 5 6))",
+            0.1,
+            True,
+            "POLYGON ((1 1, 4 5, 5 6, 3 3, 1 1))",
+        ),
+        (
+            "GEOMETRYCOLLECTION (MULTIPOINT((1 1), (3 3)), POINT(5 6), LINESTRING(4 5, 5 6))",
+            0.1,
+            False,
+            "POLYGON ((3 3, 1 1, 4 5, 5 6, 3 3))",
+        ),
+    ],
+)
+def test_st_concavehull_allow_holes(eng, geom, pctconvex, allow_holes, expected):
+    eng = eng.create_or_skip()
+    if expected is None:
+        eng.assert_query_result(
+            f"SELECT ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)})",
+            expected,
+        )
+    elif "EMPTY" in expected.upper():
+        eng.assert_query_result(
+            f"SELECT ST_IsEmpty(ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)}, {val_or_null(allow_holes)}))",
+            True,
+        )
+    else:
+        eng.assert_query_result(
+            f"SELECT ST_Equals(ST_ConcaveHull({geom_or_null(geom)}, {val_or_null(pctconvex)}, {val_or_null(allow_holes)}), {geom_or_null(expected)})",
+            True,
+        )
 
 
 @pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
@@ -990,6 +1167,27 @@ def test_st_geomfromtext(eng, wkt, expected):
         wkt = f"'{wkt}'"
     eng = eng.create_or_skip()
     eng.assert_query_result(f"SELECT ST_GeomFromText({val_or_null(wkt)})", expected)
+
+
+@pytest.mark.parametrize("eng", [SedonaDB, PostGIS])
+@pytest.mark.parametrize(
+    ("wkt", "srid", "expected"),
+    [
+        (None, None, None),
+        ("POINT (0 0)", None, None),
+        ("POINT (0 0)", 0, 0),
+        ("POINT (0 0)", 4326, 4326),
+        ("POINT (0 0)", "4326", 4326),
+    ],
+)
+def test_st_geomfromtext_with_srid(eng, wkt, srid, expected):
+    if wkt is not None:
+        wkt = f"'{wkt}'"
+    eng = eng.create_or_skip()
+    eng.assert_query_result(
+        f"SELECT ST_SRID(ST_GeomFromText({val_or_null(wkt)}, {val_or_null(srid)}))",
+        expected,
+    )
 
 
 @pytest.mark.parametrize("eng", [SedonaDB, PostGIS])

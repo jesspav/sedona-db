@@ -21,7 +21,7 @@ use serde_json::Value;
 use std::fmt::{Debug, Display};
 use std::sync::LazyLock;
 
-use crate::crs::{deserialize_crs, Crs};
+use crate::crs::{deserialize_crs, deserialize_crs_from_obj, Crs};
 use crate::extension_type::ExtensionType;
 use crate::raster::RasterSchema;
 
@@ -86,6 +86,36 @@ static RASTER_DATATYPE: LazyLock<DataType> =
 // Implementation details
 
 impl SedonaType {
+    /// Create a new item-level CRS type
+    ///
+    /// An item level CRS type in SedonaDB is a struct(item: <arbitrary type>, crs: <string view>).
+    /// This design was used to minimize the friction of automatically wrapping existing functions
+    /// that accept <arbitrary type>. The crs representation is typically an authority:code string;
+    /// however, any string that works with [deserialize_crs] is valid. A "missing" CRS (i.e.,
+    /// `Crs::None` at the type level) is represented by a null value in the crs array.
+    ///
+    /// Note that this function strips CRSes from item if they are present. This is to prevent the
+    /// item-level CRS type from carrying a CRS itself.
+    pub fn new_item_crs(item: &SedonaType) -> Result<SedonaType> {
+        let item_sedona_type = match item {
+            SedonaType::Wkb(edges, _) => SedonaType::Wkb(*edges, None),
+            SedonaType::WkbView(edges, _) => SedonaType::WkbView(*edges, None),
+            _ => {
+                return sedona_internal_err!("Can't create item_crs from non-geo type");
+            }
+        };
+
+        let arrow_type = DataType::Struct(
+            vec![
+                item_sedona_type.to_storage_field("item", true)?,
+                Field::new("crs", DataType::Utf8View, true),
+            ]
+            .into(),
+        );
+
+        Ok(SedonaType::Arrow(arrow_type))
+    }
+
     /// Given a field as it would appear in an external Schema return the appropriate SedonaType
     pub fn from_storage_field(field: &Field) -> Result<SedonaType> {
         match ExtensionType::from_field(field) {
@@ -312,8 +342,13 @@ fn deserialize_edges_and_crs(value: &Option<String>) -> Result<(Edges, Crs)> {
             };
 
             let crs = match json_value.get("crs") {
-                Some(crs_value) => deserialize_crs(crs_value)?,
-                None => Crs::None,
+                Some(crs_value) => match &crs_value {
+                    Value::Object(_obj) => deserialize_crs_from_obj(crs_value)?,
+                    Value::String(s) => deserialize_crs(s)?,
+                    Value::Number(s) => deserialize_crs(&s.to_string())?,
+                    _ => None,
+                },
+                None => None,
             };
 
             Ok((edges, crs))
@@ -430,8 +465,7 @@ mod tests {
             "Wkb(ogc:crs84)"
         );
 
-        let projjson_value: Value = r#"{}"#.parse().unwrap();
-        let projjson_crs = deserialize_crs(&projjson_value).unwrap();
+        let projjson_crs = deserialize_crs("{}").unwrap();
         assert_eq!(
             SedonaType::Wkb(Edges::Planar, projjson_crs).to_string(),
             "Wkb({...})"

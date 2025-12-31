@@ -20,6 +20,7 @@ use fastrand::Rng;
 use sedona_raster::array::RasterStructArray;
 use sedona_raster::builder::RasterBuilder;
 use sedona_raster::traits::{BandMetadata, RasterMetadata, RasterRef};
+use sedona_schema::crs::lnglat;
 use sedona_schema::raster::{BandDataType, StorageType};
 
 /// Generate a StructArray of rasters with sequentially increasing dimensions and pixel values
@@ -29,6 +30,7 @@ pub fn generate_test_rasters(
     null_raster_index: Option<usize>,
 ) -> Result<StructArray> {
     let mut builder = RasterBuilder::new(count);
+    let crs = lnglat().unwrap().to_crs_string();
     for i in 0..count {
         // If a null raster index is specified and that matches the current index,
         // append a null raster
@@ -43,11 +45,11 @@ pub fn generate_test_rasters(
             upperleft_x: i as f64 + 1.0,
             upperleft_y: i as f64 + 2.0,
             scale_x: i as f64 * 0.1,
-            scale_y: i as f64 * 0.2,
-            skew_x: i as f64 * 0.3,
-            skew_y: i as f64 * 0.4,
+            scale_y: i as f64 * -0.2,
+            skew_x: i as f64 * 0.03,
+            skew_y: i as f64 * 0.04,
         };
-        builder.start_raster(&raster_metadata, None)?;
+        builder.start_raster(&raster_metadata, Some(&crs))?;
         builder.start_band(BandMetadata {
             datatype: BandDataType::UInt16,
             nodata_value: Some(vec![0u8; 2]),
@@ -89,6 +91,7 @@ pub fn generate_tiled_rasters(
     let (x_tiles, y_tiles) = number_of_tiles;
     let mut raster_builder = RasterBuilder::new(x_tiles * y_tiles);
     let band_count = 3;
+    let crs = lnglat().unwrap().to_crs_string();
 
     for tile_y in 0..y_tiles {
         for tile_x in 0..x_tiles {
@@ -106,7 +109,7 @@ pub fn generate_tiled_rasters(
                 skew_y: 0.0,
             };
 
-            raster_builder.start_raster(&raster_metadata, None)?;
+            raster_builder.start_raster(&raster_metadata, Some(&crs))?;
 
             for _ in 0..band_count {
                 // Set a nodata value appropriate for the data type
@@ -408,9 +411,9 @@ mod tests {
             assert_eq!(metadata.upper_left_x(), i as f64 + 1.0);
             assert_eq!(metadata.upper_left_y(), i as f64 + 2.0);
             assert_eq!(metadata.scale_x(), (i as f64) * 0.1);
-            assert_eq!(metadata.scale_y(), (i as f64) * 0.2);
-            assert_eq!(metadata.skew_x(), (i as f64) * 0.3);
-            assert_eq!(metadata.skew_y(), (i as f64) * 0.4);
+            assert_eq!(metadata.scale_y(), (i as f64) * -0.2);
+            assert_eq!(metadata.skew_x(), (i as f64) * 0.03);
+            assert_eq!(metadata.skew_y(), (i as f64) * 0.04);
 
             let bands = raster.bands();
             let band = bands.band(1).unwrap();
